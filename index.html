@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#121212">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="台メモ">
+<meta name="app-version" content="6a77596ab1">
+<title>台メモ</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body class="locked">
+<header id="bar"></header>
+<main id="view"></main>
+<nav id="tabs" aria-label="画面の切り替え"></nav>
+
+<div id="lock" role="dialog" aria-modal="true" aria-labelledby="lock-title">
+  <form class="lock-box">
+    <div class="lock-title" id="lock-title">台メモ</div>
+    <p class="lock-msg" id="lock-msg">パスワードを入れてください（この端末では最初の1回だけ）</p>
+    <input type="text" name="username" value="slot-memo" autocomplete="username" hidden>
+    <input type="password" id="lock-pw" autocomplete="current-password" placeholder="パスワード" aria-label="パスワード">
+    <button class="btn btn-accent btn-block" type="submit">開く</button>
+    <p class="lock-err" id="lock-err" hidden></p>
+  </form>
+  <div class="lock-box" id="lock-fatal" hidden>
+    <div class="lock-title">台メモ</div>
+    <p class="lock-msg" id="lock-fatal-msg"></p>
+    <button class="btn btn-block" type="button" onclick="location.reload()">開き直す</button>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
