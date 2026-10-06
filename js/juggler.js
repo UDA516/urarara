@@ -183,8 +183,9 @@ export function elementRows(m) {
   return rows;
 }
 
-// 前任者込みの値でも印を付ける列（前任者は BIG・REG の合計しか分からない）
-export const BOTH_COLS = new Set(['combo', 'big', 'reg', 'br']);
+// 設定差の表で印を付ける列。印は前任者と自分を合わせた値だけで付ける
+// （前任者は BIG・REG の合計しか分からないので、合わせられるのは BIG・REG から出す列だけ）
+export const MARK_COLS = ['combo', 'big', 'reg', 'br'];
 
 /** 設定差の表の列（渡されたカウンターの11列。チェリーは設定差があるときだけ） */
 export function specColumns(m) {

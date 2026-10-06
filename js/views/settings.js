@@ -17,7 +17,6 @@ export async function render(root, args, ctx) {
       <div class="card-title">データ</div>
       <div class="kv"><span>版</span><b>${esc(catalog.versionLabel())}</b></div>
       <div class="kv"><span>機種</span><b>${d.machines.length}</b></div>
-      <div class="kv"><span>店舗</span><b>${d.stores.length}</b></div>
       <button type="button" class="btn btn-block" data-update style="margin-top:10px">更新を確かめる</button>
     </section>
     <section class="card">

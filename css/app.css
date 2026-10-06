@@ -106,6 +106,8 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .btn:disabled { opacity: 0.6; }
 .btn-accent { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
 .btn-accent:active { background: var(--accent-press); }
+/* 押せないときは色を抜く（薄いピンクだと押せそうに見えるため） */
+.btn-accent:disabled { background: var(--surface-2); border-color: var(--border-strong); color: var(--text-faint); opacity: 1; cursor: default; }
 .btn-ghost { background: transparent; color: var(--text-dim); }
 .btn-danger { background: transparent; border-color: rgba(239, 83, 80, 0.6); color: var(--danger); }
 .btn-block { width: 100%; }
@@ -190,7 +192,6 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .spec th, .spec td { padding: 6px 4px; border: 1px solid var(--border-strong); }
 .spec th { background: var(--surface-3); font-weight: 700; }
 .spec td:first-child { background: var(--surface-2); font-weight: 700; }
-.mk-mine { box-shadow: inset 0 0 0 2px var(--accent); }
 .mk-all { background: var(--accent-strong) !important; color: #fff; }
 .mk { display: inline-block; margin: 0 4px 0 0; padding: 0 6px; border-radius: 4px; font-size: 11px; }
 

@@ -1,5 +1,6 @@
-// 機種と店舗のデータ。暗号化したもの（envelope）を端末に持ち、起動のたびに手元で復号する。
-// ネットへは更新の確認のときだけ行く（version.json を見て、変わっていれば data.enc を取り直す）
+// 機種のデータ。暗号化したもの（envelope）を端末に持ち、起動のたびに手元で復号する。
+// ネットへは更新の確認のときだけ行く（version.json を見て、変わっていれば data.enc を取り直す）。
+// 店舗はデータに入れない（判別を始めるときに自由に入れ、端末の記録にだけ残す）
 import { kvGet, kvSet, kvDel } from './db.js';
 import { deriveKey, decryptEnvelope } from './crypto.js';
 
@@ -10,7 +11,6 @@ let payload = null;
 export const data = () => payload;
 export const machines = () => payload?.machines ?? [];
 export const machine = id => machines().find(m => m.id === id) || null;
-export const stores = () => payload?.stores ?? [];
 
 /** "20261006-153000" → "10/6 15:30版" */
 export function versionLabel(v = payload?.version) {

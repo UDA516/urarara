@@ -3,7 +3,7 @@
 // 入れるたびに端末へ保存する（途中で閉じても続きから）
 import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
-import { kvGet, kvSet, kvDel, recGet, recPut } from '../db.js';
+import { kvGet, kvSet, kvDel, recGet, recPut, recAll } from '../db.js';
 import { esc, fmtInt, fmtDen, fmtPct, fmtTime, toast, openSheet, confirmDialog } from '../ui.js';
 import { openNumpad, editChain } from '../numpad.js';
 import { matches } from '../search.js';
@@ -48,21 +48,34 @@ async function pushRecent(id) {
 
 // ---------------------------------------------------------------- 店舗と台番号
 
-function placeHtml(stores) {
+// 店舗は自由に入れる。公開するデータには店舗名を入れない（どこで打っているかが分かるため）。
+// 候補はこの端末の記録に残っている店舗だけから出す
+async function recentStores() {
+  const names = (await recAll()).map(r => (r.store || '').trim()).filter(Boolean);
+  return [...new Set(names)].slice(0, 8);
+}
+
+function placeHtml(recent) {
   return `<div class="sheet-label">店舗</div>
-    <div class="chips">${[...stores, ''].map(x => `<button type="button" class="chip" data-store="${esc(x)}">${esc(x || 'なし')}</button>`).join('')}</div>
+    <input class="search" type="text" maxlength="40" placeholder="店舗名（入れなくてもよい）" autocomplete="off" enterkeyhint="done" data-store>
+    ${recent.length ? `<div class="chips">${[...recent, ''].map(x => `<button type="button" class="chip" data-pick-store="${esc(x)}">${esc(x || 'なし')}</button>`).join('')}</div>` : ''}
     <div class="sheet-label">台番号</div>
     <button type="button" class="field" data-num><b data-numv></b></button>`;
 }
 
-function wirePlace(el, st) {
+function wirePlace(el, st, onChange) {
+  const input = el.querySelector('[data-store]');
+  input.value = st.store || '';
   const paint = () => {
-    el.querySelectorAll('[data-store]').forEach(b => b.classList.toggle('on', (b.dataset.store || null) === (st.store || null)));
+    el.querySelectorAll('[data-pick-store]').forEach(b => b.classList.toggle('on', b.dataset.pickStore === (st.store || '')));
     el.querySelector('[data-numv]').textContent = st.num ? `${st.num}番` : '未入力';
+    onChange?.();
   };
+  input.addEventListener('input', () => { st.store = input.value.trim() || null; paint(); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });   // 「完了」でキーボードを閉じる
   el.addEventListener('click', async e => {
-    const sb = e.target.closest('[data-store]');
-    if (sb) { st.store = sb.dataset.store || null; paint(); return; }
+    const sb = e.target.closest('[data-pick-store]');
+    if (sb) { st.store = sb.dataset.pickStore || null; input.value = st.store || ''; paint(); return; }
     if (e.target.closest('[data-num]')) {
       const r = await openNumpad({ title: '台番号', value: Number(st.num) || 0, max: 5 });
       if (r) { st.num = r.empty || !r.value ? '' : String(r.value); paint(); }
@@ -71,14 +84,19 @@ function wirePlace(el, st) {
   paint();
 }
 
-/** 店舗（一覧から選ぶ）と台番号（テンキー）を聞く。やめたら null */
+/** 店舗（自由入力）と台番号（テンキー）を聞く。台番号を入れるまで決定を押せない。やめたら null */
 export async function askPlace({ title, store, num = '', okLabel = '始める' }) {
   const st = { store: store === undefined ? ((await kvGet('lastStore')) ?? null) : store, num };
+  const recent = await recentStores();
   return new Promise(resolve => {
-    const sheet = openSheet(`<div class="sheet-title">${esc(title)}</div>${placeHtml(catalog.stores())}
-      <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-ok>${esc(okLabel)}</button></div>`, { onClose: resolve });
-    wirePlace(sheet.el, st);
-    sheet.el.querySelector('[data-ok]').addEventListener('click', async () => {
+    const sheet = openSheet(`<div class="sheet-title">${esc(title)}</div>${placeHtml(recent)}
+      <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-ok>${esc(okLabel)}</button></div>
+      <p class="note" data-ok-hint>台番号を入れると押せます</p>`, { onClose: resolve });
+    const ok = sheet.el.querySelector('[data-ok]');
+    const hint = sheet.el.querySelector('[data-ok-hint]');
+    wirePlace(sheet.el, st, () => { ok.disabled = !st.num; hint.hidden = !!st.num; });
+    ok.addEventListener('click', async () => {
+      if (!st.num) return;
       if (st.store) await kvSet('lastStore', st.store);
       sheet.close({ store: st.store, num: st.num });
     });
@@ -139,11 +157,12 @@ export function pickMachine(list, onPick, title = '機種を選ぶ') {
 async function memoOnly() {
   const st = { store: (await kvGet('lastStore')) ?? null, num: '' };
   const names = catalog.machines().map(m => m.name);
+  const recent = await recentStores();
   const sheet = openSheet(`<div class="sheet-title">メモだけ残す</div>
     <div class="sheet-label">機種</div>
     <input class="search" list="memo-machines" placeholder="機種名" data-name>
     <datalist id="memo-machines">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
-    ${placeHtml(catalog.stores())}
+    ${placeHtml(recent)}
     <div class="sheet-label">メモ</div>
     <textarea class="memo" rows="5" placeholder="挙動・気づいたこと" data-memo></textarea>
     <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-save>保存</button></div>`);
@@ -260,7 +279,7 @@ function renderSession(root, s, ctx) {
     <section class="card">
       <div class="card-title">設定差の表</div>
       <div class="spec-wrap">${J.specTableHtml(m)}</div>
-      <p class="note"><span class="mk mk-mine">枠</span>自分の値に近い設定　<span class="mk mk-all">塗り</span>前任者込みの値に近い設定</p>
+      <p class="note"><span class="mk mk-all">塗り</span>前任者と自分を合わせた値に近い設定（BB・RB・合算・BR比率だけ）</p>
     </section>
     <div class="actions">
       <button type="button" class="btn btn-block" data-memo></button>
@@ -302,15 +321,9 @@ function renderSession(root, s, ctx) {
       td.innerHTML = v ? `${fmtDen(v)}${near ? `<small>設定${esc(near.text)}</small>` : ''}` : '—';
     });
 
-    root.querySelectorAll('.spec td.mk-mine, .spec td.mk-all').forEach(td => td.classList.remove('mk-mine', 'mk-all'));
-    const mark = (c, v, cls) => {
-      const near = J.nearest(m, c, v);
-      near?.idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add(cls));
-    };
-    for (const col of J.specColumns(m)) {
-      if (col.c === 'payout') continue;
-      mark(col.c, meas.mine[col.c], 'mk-mine');
-      if (J.BOTH_COLS.has(col.c)) mark(col.c, meas.all[col.c], 'mk-all');
+    root.querySelectorAll('.spec td.mk-all').forEach(td => td.classList.remove('mk-all'));
+    for (const c of J.MARK_COLS) {
+      J.nearest(m, c, meas.all[c])?.idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add('mk-all'));
     }
 
     $('[data-place]').textContent = `${placeText(s)} · ${fmtTime(s.startedAt)}から`;
