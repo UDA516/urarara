@@ -29,7 +29,8 @@
 * { box-sizing: border-box; }
 /* .btn などが display を持っていても hidden で必ず消えるように */
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; }
+/* スクロールバーの幅をいつも空けておく（長さの違うタブを行き来しても、中身と下のタブが左右にずれないように） */
+html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
 body {
   margin: 0;
   background: var(--bg);
@@ -198,7 +199,7 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .spec th, .spec td { padding: 6px 4px; border: 1px solid var(--border-strong); }
 .spec th { background: var(--surface-3); font-weight: 700; }
 .spec td:first-child { background: var(--surface-2); font-weight: 700; }
-.mk-all { background: var(--accent-strong) !important; color: #fff; }
+.mk-near { background: var(--accent-strong) !important; color: #fff; }
 .mk { display: inline-block; margin: 0 4px 0 0; padding: 0 6px; border-radius: 4px; font-size: 11px; }
 
 .memo-sec { margin-bottom: 14px; }

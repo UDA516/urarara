@@ -206,9 +206,9 @@ export function elementRows(m) {
   return rows;
 }
 
-// 設定差の表で印を付ける列。印は前任者と自分を合わせた値だけで付ける
-// （前任者は BIG・REG の合計しか分からないので、合わせられるのは BIG・REG から出す列だけ）
-export const MARK_COLS = ['combo', 'big', 'reg', 'br'];
+// 設定差の表の塗りに、前任者と自分を合わせた値を使う列（BIG・REG から出す列）。ほかの列（内訳・小役）は
+// 自分の値（自分の消化Gと自分の回数）で塗る。前任者は BIG・REG の合計しか分からないため
+const WITH_PREV = new Set(['combo', 'big', 'reg', 'br']);
 
 /** 設定差の表の列（渡されたカウンターの11列。チェリーは設定差があるときだけ） */
 export function specColumns(m) {
@@ -238,6 +238,64 @@ export function specTableHtml(m) {
     return `<td data-spec="${c.c}:${i}">${esc(c.text(v))}</td>`;
   }).join('')}</tr>`).join('');
   return `<table class="spec"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
+/** 設定差の表で塗る設定（{ 列: [設定の添字…] }）。meas は measures() の結果。0回の列は塗らない */
+export function specMarks(m, meas) {
+  const marks = {};
+  for (const { c } of specColumns(m)) {
+    if (c === 'payout') continue;
+    const near = nearest(m, c, (WITH_PREV.has(c) ? meas.all : meas.mine)[c]);
+    if (near) marks[c] = near.idx;
+  }
+  return marks;
+}
+
+// ---------------------------------------------------------------- 機械割（チェリー狙い・完全攻略）
+
+const roleSum = list => (list || []).reduce((a, o) => a + o.pay / o.prob, 0);
+
+/**
+ * 設定ごとの機械割（%）を、表の小役とボーナスの払い出しから出す（1Gあたりの払い出し ÷ 3枚）。
+ *   チェリー狙い … リプレイ・ぶどう・チェリー（合算。重複のボーナスのときも払い出す）・BIG・REG（1回の枚数）
+ *   完全攻略     … 上に、完全攻略で取る小役（payout_model.skill。ベル・ピエロ）を足す
+ * 照合した表の「チェリー狙い」「フル攻略」と 0.1% ほどで合う出し方（2026-10-07）。公表値は数え方が違い、これより低い。
+ * 払い出しの値が足りなければ null。skill が無ければ full だけ null
+ */
+export function payoutRates(m) {
+  const pm = m.payoutModel || {};
+  if (!(pm.big_net > 0 && pm.reg_net > 0 && pm.replay > 0 && pm.cherry_pay > 0 && has(m, 'grape') && has(m, 'cherry'))) return null;
+  const aim = m.settings.map((_, i) => ((pm.replay_pay ?? 3) / pm.replay + (pm.grape_pay ?? 8) / m.table.grape[i]
+    + pm.cherry_pay / m.table.cherry[i] + pm.big_net / m.table.big[i] + pm.reg_net / m.table.reg[i]
+    + roleSum(pm.others)) / 3 * 100);
+  const skill = roleSum(pm.skill) / 3 * 100;
+  return { aim, full: pm.skill?.length ? aim.map(v => v + skill) : null };
+}
+
+/** 機械割の表（公表値・チェリー狙い・完全攻略）と、出し方の断り。出せるものが無ければ空 */
+export function payoutHtml(m) {
+  const r = payoutRates(m);
+  const pub = Array.isArray(m.table.payout) ? m.table.payout : null;
+  if (!r && !pub) return '';
+  const pm = m.payoutModel || {};
+  const pct = v => (v == null ? '—' : `${v.toFixed(1)}%`);
+  const body = m.settings.map((s, i) => `<tr><td>${esc(s)}</td><td>${pub ? esc(pub[i]) : '—'}</td>`
+    + `<td>${pct(r?.aim[i])}</td><td>${pct(r?.full?.[i])}</td></tr>`).join('');
+  const notes = [];
+  if (r) {
+    const pays = [`BIG ${pm.big_net}枚`, `REG ${pm.reg_net}枚`, `ぶどう ${pm.grape_pay ?? 8}枚`,
+      `チェリー ${pm.cherry_pay}枚`, `リプレイ ${pm.replay_pay ?? 3}枚`].join('・');
+    notes.push(`チェリー狙い・完全攻略は、表の小役とボーナスから出した計算値です（1Gあたりの払い出し ÷ 3枚。${pays}）`);
+    notes.push(pm.skill?.length
+      ? `完全攻略は ${pm.skill.map(o => `${esc(o.label)}（1/${o.prob}・${o.pay}枚）`).join('・')}も取った場合です`
+      : '完全攻略で取る小役（ベル・ピエロ）の確率が無いので、完全攻略は出せません');
+    if (!has(m, 't_cherry')) notes.push('チェリーが重複を含む合算か分からないので、計算値は 0.1% ほどずれることがあります');
+  } else {
+    notes.push('払い出しの値が足りないので、チェリー狙い・完全攻略は出せません');
+  }
+  notes.push(pub ? '公表値は数え方が違い、計算値より低く出ます' : '公表値はまだ入っていません');
+  return `<table class="tbl"><thead><tr><th>設定</th><th>公表値</th><th>チェリー狙い</th><th>完全攻略</th></tr></thead>`
+    + `<tbody>${body}</tbody></table>${notes.map(n => `<p class="note">${n}</p>`).join('')}`;
 }
 
 // ---------------------------------------------------------------- 前任者のぶどう逆算（座る前の目安）

@@ -91,20 +91,17 @@ export function cautionCard(m) {
     <ul>${list.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
 }
 
-/** 店舗（自由入力）と台番号（テンキー）を聞く。台番号を入れるまで決定を押せない。やめたら null。
+/** 店舗（自由入力）と台番号（テンキー）を聞く。どちらも無くても決定を押せる。やめたら null。
  *  before は店舗の上に出すもの（データの注意） */
 export async function askPlace({ title, store, num = '', okLabel = '始める', before = '' }) {
   const st = { store: store === undefined ? ((await kvGet('lastStore')) ?? null) : store, num };
   const recent = await recentStores();
   return new Promise(resolve => {
     const sheet = openSheet(`<div class="sheet-title">${esc(title)}</div>${before}${placeHtml(recent)}
-      <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-ok>${esc(okLabel)}</button></div>
-      <p class="note" data-ok-hint>台番号を入れると押せます</p>`, { onClose: resolve });
-    const ok = sheet.el.querySelector('[data-ok]');
-    const hint = sheet.el.querySelector('[data-ok-hint]');
-    wirePlace(sheet.el, st, () => { ok.disabled = !st.num; hint.hidden = !!st.num; });
-    ok.addEventListener('click', async () => {
-      if (!st.num) return;
+      <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-ok>${esc(okLabel)}</button></div>`,
+      { onClose: resolve });
+    wirePlace(sheet.el, st);
+    sheet.el.querySelector('[data-ok]').addEventListener('click', async () => {
       if (st.store) await kvSet('lastStore', st.store);
       sheet.close({ store: st.store, num: st.num });
     });
@@ -290,7 +287,7 @@ function renderSession(root, s, ctx) {
     <section class="card">
       <div class="card-title">設定差の表</div>
       <div class="spec-wrap">${J.specTableHtml(m)}</div>
-      <p class="note"><span class="mk mk-all">塗り</span>前任者と自分を合わせた値に近い設定（BB・RB・合算・BR比率だけ）</p>
+      <p class="note"><span class="mk mk-near">塗り</span>近い設定。BB・RB・合算・BR比率は前任者と自分を合わせた値、ほかの列は自分の値（自分の消化Gと自分の回数）で</p>
     </section>
     <div class="actions">
       <button type="button" class="btn btn-block" data-memo></button>
@@ -332,9 +329,9 @@ function renderSession(root, s, ctx) {
       td.innerHTML = v ? `${fmtDen(v)}${near ? `<small>設定${esc(near.text)}</small>` : ''}` : '—';
     });
 
-    root.querySelectorAll('.spec td.mk-all').forEach(td => td.classList.remove('mk-all'));
-    for (const c of J.MARK_COLS) {
-      J.nearest(m, c, meas.all[c])?.idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add('mk-all'));
+    root.querySelectorAll('.spec td.mk-near').forEach(td => td.classList.remove('mk-near'));
+    for (const [c, idx] of Object.entries(J.specMarks(m, meas))) {
+      idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add('mk-near'));
     }
 
     $('[data-place]').textContent = `${placeText(s)} · ${fmtTime(s.startedAt)}から`;

@@ -47,6 +47,7 @@ function detail(root, id, tab, ctx) {
   const showSpec = judge && tab === 'spec';
   const base = `#/machines/${encodeURIComponent(m.id)}`;
   const info = [TYPE_LABEL[m.type] || m.type, m.maker, m.aliases?.length ? '別名 ' + m.aliases.join('・') : ''].filter(Boolean).join(' · ');
+  const payout = showSpec ? J.payoutHtml(m) : '';
   const memo = m.sections?.length
     ? m.sections.map(s => `<section class="memo-sec">${s.title ? `<h3>${esc(s.title)}</h3>` : ''}<div class="memo-body">${md(s.body)}</div></section>`).join('')
     : '<p class="empty">メモはまだありません（PC の機種ファイルの下側に書きます）</p>';
@@ -55,6 +56,7 @@ function detail(root, id, tab, ctx) {
     ${cautionCard(m)}
     ${judge ? `<div class="seg"><a href="${base}" class="${showSpec ? '' : 'on'}">メモ</a><a href="${base}/spec" class="${showSpec ? 'on' : ''}">スペック表</a></div>` : ''}
     ${showSpec ? `<section class="card"><div class="spec-wrap">${J.specTableHtml(m)}</div></section>` : memo}
+    ${payout ? `<section class="card"><div class="card-title">機械割</div>${payout}</section>` : ''}
     ${judge ? `<div class="actions two">
       <button type="button" class="btn" data-bc>ぶどう逆算</button>
       <button type="button" class="btn btn-accent" data-start>判別を始める</button></div>` : ''}`;

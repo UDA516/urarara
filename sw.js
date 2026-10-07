@@ -1,7 +1,7 @@
 // 圏外でも開くための Service Worker。下の VERSION と ASSETS の中身は build.py が埋める。
 // アプリの版（app\ の中身のハッシュ）が変わったときだけこのファイルの中身が変わり、ブラウザが入れ替える。
 // data.enc と version.json はここでは持たない（アプリが端末の保存先に持ち、更新を自分で確かめる）
-const VERSION = 'bba02b092d';
+const VERSION = '9ee9de40ef';
 const CACHE = 'slot-memo-' + VERSION;
 const ASSETS = ["./", "./css/app.css", "./icons/apple-touch-icon.png", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./index.html", "./js/app.js", "./js/catalog.js", "./js/crypto.js", "./js/db.js", "./js/juggler.js", "./js/nav.js", "./js/numpad.js", "./js/search.js", "./js/ui.js", "./js/views/backcalc.js", "./js/views/judge.js", "./js/views/machines.js", "./js/views/records.js", "./js/views/settings.js", "./manifest.webmanifest"];
 
