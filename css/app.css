@@ -85,6 +85,12 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .group-title { font-size: 12px; font-weight: 700; color: var(--warn); margin: 12px 0 2px; padding-top: 10px; border-top: 1px solid var(--border); }
 .warn-card { border-color: rgba(255, 183, 77, 0.45); background: var(--warn-soft); color: var(--warn); }
 .warn-card ul { margin: 4px 0; padding-left: 1.2em; }
+.warn-card .card-title { color: inherit; }
+/* 機種のデータの注意（始める枠・機種の詳細）と、判別中にたたんで残すもの */
+.caution li { font-size: 13px; line-height: 1.6; }
+.caution-fold { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--warn); }
+.caution-fold summary { cursor: pointer; }
+.caution-fold ul { margin: 4px 0 0; padding-left: 1.2em; }
 .note { font-size: 12px; color: var(--text-faint); margin: 8px 0 0; line-height: 1.6; }
 .empty { color: var(--text-faint); text-align: center; padding: 24px 0; margin: 0; }
 .k { display: block; font-size: 11px; font-weight: 400; color: var(--text-dim); }

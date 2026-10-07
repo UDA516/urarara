@@ -84,12 +84,20 @@ function wirePlace(el, st, onChange) {
   paint();
 }
 
-/** 店舗（自由入力）と台番号（テンキー）を聞く。台番号を入れるまで決定を押せない。やめたら null */
-export async function askPlace({ title, store, num = '', okLabel = '始める' }) {
+/** 機種のデータの注意（そろっていない・合っていないところ）。無ければ空 */
+export function cautionCard(m) {
+  const list = J.cautions(m);
+  return list.length ? `<div class="card warn-card caution"><div class="card-title">この機種のデータの注意</div>
+    <ul>${list.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+}
+
+/** 店舗（自由入力）と台番号（テンキー）を聞く。台番号を入れるまで決定を押せない。やめたら null。
+ *  before は店舗の上に出すもの（データの注意） */
+export async function askPlace({ title, store, num = '', okLabel = '始める', before = '' }) {
   const st = { store: store === undefined ? ((await kvGet('lastStore')) ?? null) : store, num };
   const recent = await recentStores();
   return new Promise(resolve => {
-    const sheet = openSheet(`<div class="sheet-title">${esc(title)}</div>${placeHtml(recent)}
+    const sheet = openSheet(`<div class="sheet-title">${esc(title)}</div>${before}${placeHtml(recent)}
       <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-ok>${esc(okLabel)}</button></div>
       <p class="note" data-ok-hint>台番号を入れると押せます</p>`, { onClose: resolve });
     const ok = sheet.el.querySelector('[data-ok]');
@@ -105,7 +113,7 @@ export async function askPlace({ title, store, num = '', okLabel = '始める' }
 
 /** 判別を始める。prefill は逆算の画面から引き継ぐ前任者情報。始めたら true */
 export async function startSession(m, prefill = {}) {
-  const place = await askPlace({ title: `${m.name} で始める` });
+  const place = await askPlace({ title: `${m.name} で始める`, before: cautionCard(m) });
   if (!place) return false;
   const cur = await currentSession();
   if (cur) await finishSession(cur);   // 別の台へ移った。前のものは終わったものとして記録へ
@@ -242,6 +250,7 @@ function renderSession(root, s, ctx) {
     </div>`;
   const bonusItems = items.filter(i => i.group === 'bonus');
   const roleItems = items.filter(i => i.group === 'role');
+  const notes = J.cautions(m);   // 始めるときに出した注意。途中から開いたときのために、たたんで残す
 
   root.innerHTML = `
     <button type="button" class="place" data-place></button>
@@ -258,6 +267,8 @@ function renderSession(root, s, ctx) {
         <span class="bar"><i data-bar="all:${i}"></i><em data-pct="all:${i}"></em></span>
       </div>`).join('')}
       <p class="note">どの設定も同じ割合で入っていると置いた計算です（実際より高設定寄りに出ます）。小役は自分の消化Gのぶんだけを使います。</p>
+      ${notes.length ? `<details class="caution-fold"><summary>この機種のデータの注意（${notes.length}件）</summary>
+        <ul>${notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
     </section>
     <section class="card">
       <div class="card-title">要素ごと（近い設定）</div>

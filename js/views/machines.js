@@ -4,7 +4,7 @@ import * as J from '../juggler.js';
 import { matches } from '../search.js';
 import { esc, md } from '../ui.js';
 import { navigate } from '../nav.js';
-import { startSession } from './judge.js';
+import { startSession, cautionCard } from './judge.js';
 
 const TYPE_LABEL = { juggler: 'ジャグラー', memo: 'メモ' };
 let query = '';
@@ -52,6 +52,7 @@ function detail(root, id, tab, ctx) {
     : '<p class="empty">メモはまだありません（PC の機種ファイルの下側に書きます）</p>';
   root.innerHTML = `
     <p class="sub">${esc(info)}</p>
+    ${cautionCard(m)}
     ${judge ? `<div class="seg"><a href="${base}" class="${showSpec ? '' : 'on'}">メモ</a><a href="${base}/spec" class="${showSpec ? 'on' : ''}">スペック表</a></div>` : ''}
     ${showSpec ? `<section class="card"><div class="spec-wrap">${J.specTableHtml(m)}</div></section>` : memo}
     ${judge ? `<div class="actions two">

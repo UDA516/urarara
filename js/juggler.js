@@ -10,7 +10,7 @@ import { esc } from './ui.js';
 
 export const LABEL = {
   big: 'BIG', reg: 'REG', t_big: '単独BIG', t_reg: '単独REG', c_big: 'チェリーBIG', c_reg: 'チェリーREG',
-  p_big: 'ピエロBIG', p_reg: 'ピエロREG', grape: 'ぶどう', cherry: 'チェリー',
+  p_big: 'ピエロBIG', p_reg: 'ピエロREG', o_big: 'その他BIG', o_reg: 'その他REG', grape: 'ぶどう', cherry: 'チェリー',
 };
 
 const has = (m, c) => Array.isArray(m.table?.[c]);
@@ -19,11 +19,15 @@ export function isJudgeable(m) {
   return !!m && m.type === 'juggler' && has(m, 'big') && has(m, 'reg');
 }
 
-/** チェリーに設定差があるか。無い機種はチェリーを数えない（チェリー重複のボーナスだけ数える） */
-export function cherryVaries(m) {
-  const a = m.table.cherry;
-  return Array.isArray(a) && a.some(v => Math.abs(v - a[0]) > 1e-9);
-}
+/** 列に設定差があるか */
+const varies = (m, c) => has(m, c) && m.table[c].some(v => Math.abs(v - m.table[c][0]) > 1e-9);
+
+/** 判別で数えるチェリーの列。表に非重複チェリー（t_cherry）があればそれ（重複のボーナスは別に数えるため）。
+ *  cherry（合算）は逆算の払い出しに使う */
+const cherryCol = m => (has(m, 't_cherry') ? 't_cherry' : 'cherry');
+
+/** 数えるチェリーに設定差があるか。無い機種はチェリーを数えない（チェリー重複のボーナスだけ数える） */
+export const cherryVaries = m => varies(m, cherryCol(m));
 
 /** 自分が数える項目。表に内訳の列があれば契機別、無ければ BIG・REG。小役は表にあるものだけ */
 export function myItems(m) {
@@ -36,6 +40,10 @@ export function myItems(m) {
     if (has(m, 'c_reg')) bonus('c_reg', 'reg');
     if (has(m, 'p_big')) bonus('p_big', 'big');
     if (has(m, 'p_reg')) bonus('p_reg', 'reg');
+    // その他（中段チェリーなど、単独でもチェリー・ピエロ重複でもないもの）。設定差が無くても、
+    // 数えないと単独に混ざって単独が良く見えるので数える
+    if (has(m, 'o_big')) bonus('o_big', 'big');
+    if (has(m, 'o_reg')) bonus('o_reg', 'reg');
   } else {
     bonus('big', 'big');
     bonus('reg', 'reg');
@@ -43,6 +51,17 @@ export function myItems(m) {
   if (has(m, 'grape')) items.push({ id: 'grape', label: LABEL.grape, group: 'role' });
   if (cherryVaries(m)) items.push({ id: 'cherry', label: LABEL.cherry, group: 'role' });
   return items;
+}
+
+/** 判別を始める前に出す注意。表から分かること（内訳が無い など）に、機種ファイルの cautions
+ *  （データがそろっていない・合っていないところ）を足す。ジャグラーの型でない機種は cautions だけ */
+export function cautions(m) {
+  const list = [];
+  if (isJudgeable(m)) {
+    if (!(has(m, 't_big') && has(m, 't_reg'))) list.push('単独・チェリー重複の内訳がまだ無いので、ボーナスは BIG・REG だけで数えます');
+    if (!has(m, 'grape')) list.push('ぶどうの表が無いので、ぶどうは数えません');
+  }
+  return [...list, ...(m?.cautions || [])];
 }
 
 export function highIndex(m) {
@@ -84,7 +103,7 @@ export function posterior(m, s, withPrev) {
   const items = myItems(m);
   return normalize(m.settings.map((_, i) => {
     let ll = 0;
-    if (myG > 0) for (const it of items) ll += binomLL(s.counts?.[it.id], myG, 1 / m.table[it.id][i]);
+    if (myG > 0) for (const it of items) ll += binomLL(s.counts?.[it.id], myG, 1 / colValues(m, it.id)[i]);
     if (withPrev && s.startG > 0) {
       ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]) + binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
     }
@@ -111,10 +130,11 @@ export function snapshot(m, s) {
 
 // ---------------------------------------------------------------- 近い設定と設定差の表
 
-/** 列の値（合算と BR比率は表に無ければ BIG・REG から出す） */
+/** 列の値（合算と BR比率は表に無ければ BIG・REG から出す。チェリーは判別で数えるほう） */
 export function colValues(m, c) {
   if (c === 'combo') return has(m, 'combo') ? m.table.combo : m.table.big.map((b, i) => 1 / (1 / b + 1 / m.table.reg[i]));
   if (c === 'br') return m.table.big.map((b, i) => m.table.reg[i] / b);   // BIG回数 ÷ REG回数 の期待値
+  if (c === 'cherry') return m.table[cherryCol(m)];
   return m.table[c];
 }
 
@@ -180,6 +200,9 @@ export function elementRows(m) {
   add('c_big', 'チェリーBIG');
   add('p_big', 'ピエロBIG');
   add('p_reg', 'ピエロREG');
+  // その他は設定差があるときだけ（無ければどの設定にも同じ近さで、出しても意味が無い）
+  if (varies(m, 'o_big')) add('o_big', 'その他BIG');
+  if (varies(m, 'o_reg')) add('o_reg', 'その他REG');
   return rows;
 }
 
@@ -198,6 +221,9 @@ export function specColumns(m) {
   cols.push({ c: 'reg', label: 'RB確率', text: v => v.toFixed(1) });
   for (const [c, label] of [['t_big', '単独<br>BIG'], ['t_reg', '単独<br>REG'], ['c_big', 'ﾁｪﾘｰ<br>+BIG'], ['c_reg', 'ﾁｪﾘｰ<br>+REG']]) {
     if (has(m, c)) cols.push({ c, label, text: raw });
+  }
+  for (const [c, label] of [['o_big', 'その他<br>BIG'], ['o_reg', 'その他<br>REG']]) {
+    if (varies(m, c)) cols.push({ c, label, text: raw });
   }
   if (has(m, 'grape')) cols.push({ c: 'grape', label: 'ﾌﾞﾄﾞｳ', text: v => v.toFixed(2) });
   if (cherryVaries(m)) cols.push({ c: 'cherry', label: 'ﾁｪﾘｰ', text: v => v.toFixed(1) });
@@ -240,6 +266,7 @@ export function backcalc(m, { games, big, reg, diff }, readErr = 100) {
   const post = bonusPosterior(m, games, big, reg);
   const otherPay = m.settings.map((_, i) => {
     let v = (pm.replay_pay ?? 3) / pm.replay;
+    // チェリーは合算（cherry）。重複のボーナスのときもチェリーは払い出すので、非重複（t_cherry）ではなくこちら
     if (has(m, 'cherry') && pm.cherry_pay) v += pm.cherry_pay * (pm.cherry_take ?? 1) / m.table.cherry[i];
     for (const o of pm.others || []) v += o.pay / o.prob;
     return v;
