@@ -31,6 +31,9 @@
 [hidden] { display: none !important; }
 /* スクロールバーの幅をいつも空けておく（長さの違うタブを行き来しても、中身と下のタブが左右にずれないように） */
 html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
+/* iPhone のホーム画面版（viewport-fit=cover）は、画面の高さをステータスバーの分だけ短く数えるため、
+   中身が短い画面（逆算・記録）で下のタブがその分浮く。ページを「画面＋ステータスバー」の高さ以上にして防ぐ */
+html { min-height: calc(100% + var(--safe-top)); }
 body {
   margin: 0;
   background: var(--bg);
