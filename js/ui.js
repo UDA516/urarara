@@ -1,4 +1,4 @@
-// 画面の小さな道具: 文字の書き方・お知らせ・下から出す枠・確認・たためる組の開け閉め・メモの表示
+// 画面の小さな道具: 文字の書き方・お知らせ・下から出す枠・コピー・確認・たためる組の開け閉め・メモの表示
 
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -57,6 +57,24 @@ export function openSheet(html, { onClose } = {}) {
   };
   overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
   return { el: overlay.querySelector('.sheet'), close };
+}
+
+/** クリップボードへ。使えない端末では選択した状態で見せ、「コピーしました」を押したら true */
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return new Promise(resolve => {
+      const sheet = openSheet(`<div class="sheet-title">この文字列をコピーしてください</div>
+        <textarea class="io" rows="7" readonly>${esc(text)}</textarea>
+        <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-done>コピーしました</button></div>`, { onClose: v => resolve(!!v) });
+      const ta = sheet.el.querySelector('textarea');
+      ta.focus();
+      ta.select();
+      sheet.el.querySelector('[data-done]').addEventListener('click', () => sheet.close(true));
+    });
+  }
 }
 
 /** 確認。押したボタンの value で解決する（外側を押したら null）。window.confirm は使わない */

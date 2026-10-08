@@ -1,13 +1,17 @@
 // A タイプ（ジャグラー以外）。数える項目（契機別のボーナス・小役・示唆など）は機種ファイルの [[count]] に書き、
 // build.py が items（数える項目の並び）と table（設定ごとの 1/N。big・reg・combo は内訳から出したもの）にする。
 // 判別の計算は juggler.js と同じもの（項目ごとの二項分布の対数尤度）を使い、ここは型で違うところだけを持つ:
-// 要素の行・設定差の表の組・機械割（ボーナス1回の平均の投入と払い出しから出す）。逆算はしない
+// 要素の行・設定差の表の組・種別に分けて数える組（種別不明と合算）・機械割（ボーナス1回の平均の投入と払い出しから出す）。逆算はしない
 import { esc } from './ui.js';
 
 /** items の group:
  *   bonus（契機別のボーナス。kind で BIG・REG に足す）・role（小役。per があればその G数の欄で数える）は確率を持ち、計算に入る。
- *   games（G数の欄）・hint（示唆。1回でも数えたら excludes の設定を外す）・tally（数えるだけ）は入らない */
+ *   games（G数の欄）・hint（示唆。1回でも数えたら excludes の設定を外す）・tally（数えるだけ）は入らない。
+ *   unknown（種別不明）・sum（合算）は、種別に分けて数える組のもの。その組の小役（split を持つ）と合わせて計算する（splitLL） */
 export const isProb = it => it.group === 'bonus' || it.group === 'role';
+
+/** 表に確率の列がある項目（要素ごと・設定差の表に出せる）。合算は数える欄ではないが列を持つ */
+const hasCol = it => isProb(it) || it.group === 'sum';
 
 export const items = m => m.items || [];
 
@@ -16,6 +20,50 @@ const varies = (m, c) => Array.isArray(m.table?.[c]) && m.table[c].some(v => Mat
 /** 項目の組の名前（要素ごとの表・設定差の表）。ボーナスは「白7BBの契機」のように */
 const groupTitle = it => (it.group === 'bonus' ? `${it.sec}の契機` : it.sec);
 
+// ---------------------------------------------------------------- 種別に分けて数える組
+
+/** 種別に分けて数える組（{ sum: 合算の項目, unknown: 種別不明の項目, parts: 種別ごとの小役 }）の並び */
+export function splits(m) {
+  const list = items(m);
+  return list.filter(it => it.group === 'sum').map(sum => ({
+    sum,
+    unknown: list.find(it => it.id === sum.unknown),
+    parts: list.filter(it => it.group === 'role' && it.split === sum.id),
+  }));
+}
+
+/** 項目の回数。合算は、種別と種別不明の和 */
+export const countOf = (it, counts) => (it.group === 'sum'
+  ? [...it.parts, it.unknown].reduce((a, id) => a + (counts?.[id] || 0), 0)
+  : counts?.[it.id] || 0);
+
+/**
+ * 種別に分けた組の読み方。0回のままの種別は「分からない（数えていない）」と読み、0回だったとは読まない
+ * （一部の種別しか分からない場面があるため）。合算が分かるのは、種別不明が1回以上か、全部の種別が1回以上のとき
+ */
+export function splitState(sp, counts) {
+  const n = sp.parts.map(it => counts?.[it.id] || 0);
+  const u = counts?.[sp.unknown.id] || 0;
+  const all = n.every(k => k > 0);
+  return { n, u, all, totalKnown: u > 0 || all, total: n.reduce((a, b) => a + b, 0) + u };
+}
+
+/**
+ * 種別に分けた組の対数尤度（設定 i、分母は games）。分かった種別・種別不明・どれでもないゲームの多項分布:
+ *   合算が分かる     … Σ 分かった種別 n·log p ＋ 種別不明·log（分からない種別の p の和）＋（G − 合算）·log（1 − 全部の p の和）
+ *                      全部の種別が分かっているときの種別不明は、どの種別でもよい（全部の p の和）
+ *   合算が分からない … Σ 分かった種別 n·log p ＋（G − その和）·log（1 − 分かった種別の p の和）
+ */
+export function splitLL(m, sp, counts, games, i) {
+  const st = splitState(sp, counts);
+  const p = sp.parts.map(it => 1 / m.table[it.id][i]);
+  const pAll = p.reduce((a, b) => a + b, 0);
+  let ll = 0, pk = 0, nk = 0;
+  st.n.forEach((k, j) => { if (k > 0) { ll += k * Math.log(p[j]); pk += p[j]; nk += k; } });
+  if (!st.totalKnown) return ll + Math.max(0, games - nk) * Math.log1p(-pk);
+  return ll + st.u * Math.log(st.all ? pAll : pAll - pk) + Math.max(0, games - st.total) * Math.log1p(-pAll);
+}
+
 /** 要素ごとの表の行。合算・BIG・REG と、設定差のある項目（無いものはどの設定にも同じ近さで、出しても意味が無い）。
  *  sec は組の名前（組ごとにたためる表にする）、label は組の中での名前 */
 export function elementRows(m) {
@@ -23,7 +71,7 @@ export function elementRows(m) {
     { c: 'combo', label: 'ボーナス合算', both: true, sec: 'ボーナス' },
     { c: 'big', label: 'BIG', both: true, sec: 'ボーナス' },
     { c: 'reg', label: 'REG', both: true, sec: 'ボーナス' },
-    ...items(m).filter(it => isProb(it) && varies(m, it.id)).map(it => ({ c: it.id, label: it.short, both: false, sec: groupTitle(it) })),
+    ...items(m).filter(it => hasCol(it) && varies(m, it.id)).map(it => ({ c: it.id, label: it.short, both: false, sec: groupTitle(it) })),
   ];
 }
 
@@ -42,7 +90,7 @@ export function specGroups(m) {
     { c: 'reg', label: 'RB確率', text: v => v.toFixed(1) },
   );
   const groups = [{ title: 'ボーナス', cols: head }];
-  for (const it of items(m).filter(isProb)) {
+  for (const it of items(m).filter(hasCol)) {
     const title = groupTitle(it);
     let g = groups.find(x => x.title === title);
     if (!g) groups.push(g = { title, cols: [] });

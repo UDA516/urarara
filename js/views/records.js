@@ -3,7 +3,7 @@
 import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
 import { kvGet, kvSet, kvDel, recAll, recGet, recPut, recDel } from '../db.js';
-import { esc, fmtInt, fmtPct, fmtDate, fmtTime, dayKey, toast, openSheet, confirmDialog } from '../ui.js';
+import { esc, fmtInt, fmtPct, fmtDate, fmtTime, dayKey, toast, openSheet, confirmDialog, copyText } from '../ui.js';
 import { navigate } from '../nav.js';
 import { askPlace, editMemo, finishSession, currentSession, placeText } from './judge.js';
 
@@ -57,7 +57,12 @@ function barsHtml(snap) {
 }
 
 function inputsHtml(r, m) {
-  const items = m && J.isJudgeable(m) ? J.myItems(m) : Object.keys(r.counts || {}).map(id => ({ id, label: J.LABEL[id] || id }));
+  const items = m && J.isJudgeable(m) ? [...J.myItems(m)] : [];
+  // 今の機種ファイルに無い項目（項目を分け直す前の記録など）も、数えた回数が消えて見えないように出す
+  const have = new Set(items.map(it => it.id));
+  for (const id of Object.keys(r.counts || {})) {
+    if (!have.has(id) && r.counts[id]) items.push({ id, label: J.LABEL[id] || (m ? `${id}（今の表に無い項目）` : id) });
+  }
   const myG = Math.max(0, (r.totalG || 0) - (r.startG || 0));
   const row = (label, v) => `<div class="kv"><span>${esc(label)}</span><b>${esc(v)}</b></div>`;
   return `<section class="card">
@@ -66,7 +71,7 @@ function inputsHtml(r, m) {
     ${row('前任者のBIG / REG', `${fmtInt(r.prevBig)} / ${fmtInt(r.prevReg)}`)}
     ${row('現在の総G', fmtInt(r.totalG))}
     ${row('自分の消化G', fmtInt(myG))}
-    ${items.map(it => row(it.label, fmtInt(r.counts?.[it.id] || 0))).join('')}
+    ${items.map(it => row(it.label, fmtInt(J.countOf(it, r.counts)))).join('')}
     <p class="note">データの版 ${esc(catalog.versionLabel(r.dataVersion))}</p>
   </section>`;
 }
@@ -151,24 +156,6 @@ async function saveFile(name, text, type) {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   return true;
-}
-
-/** クリップボードへ。使えない端末では選択した状態で見せ、「コピーしました」を押したら書き出し済みにする */
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return new Promise(resolve => {
-      const sheet = openSheet(`<div class="sheet-title">この文字列をコピーしてください</div>
-        <textarea class="io" rows="7" readonly>${esc(text)}</textarea>
-        <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-done>コピーしました</button></div>`, { onClose: v => resolve(!!v) });
-      const ta = sheet.el.querySelector('textarea');
-      ta.focus();
-      ta.select();
-      sheet.el.querySelector('[data-done]').addEventListener('click', () => sheet.close(true));
-    });
-  }
 }
 
 const csvCell = v => { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };

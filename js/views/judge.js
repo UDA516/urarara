@@ -238,9 +238,16 @@ function renderSession(root, s, ctx) {
   const hl = J.highLabel(m);
   const order = [...m.settings.keys()].reverse();   // 設定6 を上に（渡されたカウンターと同じ）
   const field = (key, label) => `<button type="button" class="field" data-edit="${key}"><span class="k">${label}</span><b data-v="${key}"></b></button>`;
-  // A タイプの G数の欄（ボーナスゲーム中のG数など。その組の小役の分母）は、カウンターでなくテンキーで入れる欄
+  // A タイプの G数の欄（ボーナスゲーム中のG数など。その組の小役の分母）は、カウンターでなくテンキーで入れる欄。
+  // 合算（種別に分けて数える組）は数える欄ではなく和を出す行。押して入れると、種別不明をその差にする
   const counter = it => (it.group === 'games'
     ? `<button type="button" class="field c-games" data-edit-count="${it.id}"><span class="k">${esc(it.short)}</span><b data-count="${it.id}"></b></button>`
+    : it.group === 'sum'
+    ? `<div class="counter c-sum">
+      <span class="c-name">${esc(it.short)}</span><span></span>
+      <button type="button" class="c-val" data-edit-sum="${it.id}" data-count="${it.id}" aria-label="${esc(it.label)}を入れる"></button><span></span>
+      <span class="c-rate" data-rate="${it.id}"></span>
+    </div>`
     : `<div class="counter">
       <span class="c-name">${esc(it.short ?? it.label)}</span>
       <button type="button" class="c-btn minus" data-dec="${it.id}" aria-label="${esc(it.label)}を1減らす">−</button>
@@ -259,13 +266,21 @@ function renderSession(root, s, ctx) {
   }
   const hintNote = it => `<p class="note">「${esc(it.short)}」を1回でも数えたら、${it.note ? `${esc(it.note)}として` : ''}`
     + `設定${it.excludes.map(i => esc(m.settings[i])).join('・')}を外して計算します</p>`;
+  // 種別に分けて数える組の読み方（ユーザーの指示 2026-10-08「B しか分からない場面がある」）
+  const splitNote = sum => {
+    const unk = esc(items.find(it => it.id === sum.unknown).short);
+    return `<p class="note">種別の分からないものは「${unk}」へ。${esc(sum.short)}は種別と「${unk}」の和で、押して入れると「${unk}」をその差にします。`
+      + `計算では、0回のままの種別は「分からない」と読み（0回だったとは読まない）、「${unk}」はその種別のどれかとして扱います。`
+      + `${esc(sum.short)}の確率は「${unk}」か全部の種別が1回以上のときに出します</p>`;
+  };
   // 縦に長いので、見出しを押してたためる（ユーザーの指示 2026-10-08。A タイプで始め、ジャグラーも同じに）。
   // 開け閉めは機種ごとに端末に覚える。ボーナスの組は、たたんでも回数が分かるように見出しに合計を出す
   const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}" open>${head}${body}</details>`;
   const sectionHtml = (sec, k) => {
     const body = sec.items.map(counter).join('')
       + (sec.items.some(it => it.per === 'big') ? '<p class="note">右の％は、自分の BIG の回数に対する割合です</p>' : '')
-      + sec.items.filter(it => it.group === 'hint').map(hintNote).join('');
+      + sec.items.filter(it => it.group === 'hint').map(hintNote).join('')
+      + sec.items.filter(it => it.group === 'sum').map(splitNote).join('');
     const sum = sec.items.some(it => it.group === 'bonus') ? `<span class="fold-sum" data-fold-sum="${k}"></span>` : '';
     return fold(`cnt:${sec.title}`, `<summary class="group-title">${esc(sec.title)}${sum}</summary>`, body);
   };
@@ -354,24 +369,25 @@ function renderSession(root, s, ctx) {
 
     for (const f of FIELDS) setText(`[data-v="${f.key}"]`, fmtInt(s[f.key]));
     setText('[data-v="myG"]', fmtInt(myG));
-    const ownBig = J.stats(m, s).own.big;
+    const meas = J.measures(m, s);
+    const ownBig = meas.st.own.big;
     // 自分の確率 1/x。分母は自分の消化G（A タイプは項目の G数の欄のこともある）。
-    // A タイプの示唆・数えるだけの項目は、per が "big" なら自分の BIG に対する割合
+    // A タイプの示唆・数えるだけの項目は、per が "big" なら自分の BIG に対する割合。合算は分かるときだけ（measures）
     const rateText = (it, k) => {
       if (it.per === 'big') return ownBig > 0 ? fmtPct(k / ownBig) : '—';
+      if (it.group === 'sum') return fmtDen(meas.mine[it.id]);
       if (it.group !== 'bonus' && it.group !== 'role') return '—';
       const g = it.per ? s.counts[it.per] || 0 : myG;
       return g > 0 && k > 0 ? fmtDen(g / k) : '—';
     };
     for (const it of items) {
-      const k = s.counts[it.id] || 0;
+      const k = J.countOf(it, s.counts);
       setText(`[data-count="${it.id}"]`, it.group === 'games' ? fmtInt(k) : String(k));
       setText(`[data-rate="${it.id}"]`, rateText(it, k));
     }
     sections.forEach((sec, k) => setText(`[data-fold-sum="${k}"]`,
       `計${sec.items.filter(it => it.group === 'bonus').reduce((a, it) => a + (s.counts[it.id] || 0), 0)}回`));
 
-    const meas = J.measures(m, s);
     root.querySelectorAll('[data-el]').forEach(td => {
       const [kind, c] = td.dataset.el.split(':');
       const v = meas[kind][c];
@@ -425,6 +441,17 @@ function renderSession(root, s, ctx) {
       const id = b.dataset.editCount;
       const r = await openNumpad({ title: J.itemLabel(m, id), value: s.counts[id] || 0 });
       if (r) { s.counts[id] = Math.max(0, r.value); save(); update(); }
+    } else if ((b = t.closest('[data-edit-sum]'))) {
+      // 合算を入れる（ユニメモの合算を写すときなど）。種別に入れた分を引いた残りを種別不明にする
+      const sum = items.find(it => it.id === b.dataset.editSum);
+      const typed = sum.parts.reduce((a, id) => a + (s.counts[id] || 0), 0);
+      const unk = items.find(it => it.id === sum.unknown).short;
+      const r = await openNumpad({ title: `${sum.label}（${unk}をその差にする）`, value: J.countOf(sum, s.counts) });
+      if (!r) return;
+      if (r.value < typed) { toast(`種別に入れた回数の和（${typed}）より小さくはできません`); return; }
+      s.counts[sum.unknown] = r.value - typed;
+      save();
+      update();
     } else if ((b = t.closest('[data-edit]'))) {
       const start = FIELDS.findIndex(f => f.key === b.dataset.edit);
       await editChain(FIELDS.map(f => ({ title: f.title, get: () => s[f.key] || 0, set: (v, empty) => setField(f.key, Math.max(0, v), empty) })), start);

@@ -77,7 +77,7 @@ export async function render(root, args, ctx) {
       <button type="button" class="row" data-pick><span class="k">機種（押して変える）</span><span class="row-main">${esc(m.name)}</span></button>
       <div class="fields3" style="margin:10px 0 12px">${FIELDS.map(f => field(f, f.key === 'diff')).join('')}</div>
       ${resultHtml(m)}
-      <div class="actions two">
+      <div class="actions dock two">
         <button type="button" class="btn" data-clear>次の台</button>
         <button type="button" class="btn btn-accent" data-sit>この台に座る</button>
       </div>`;

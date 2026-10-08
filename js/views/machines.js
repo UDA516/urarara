@@ -57,7 +57,7 @@ function detail(root, id, tab, ctx) {
     ${judge ? `<div class="seg"><a href="${base}" class="${showSpec ? '' : 'on'}">メモ</a><a href="${base}/spec" class="${showSpec ? 'on' : ''}">スペック表</a></div>` : ''}
     ${showSpec ? `<section class="card">${J.specTableHtml(m)}</section>` : memo}
     ${payout ? `<section class="card"><div class="card-title">機械割</div>${payout}</section>` : ''}
-    ${judge ? `<div class="actions ${J.canBackcalc(m) ? 'two' : ''}">
+    ${judge ? `<div class="actions dock ${J.canBackcalc(m) ? 'two' : ''}">
       ${J.canBackcalc(m) ? '<button type="button" class="btn" data-bc>ぶどう逆算</button>' : ''}
       <button type="button" class="btn btn-accent" data-start>判別を始める</button></div>` : ''}`;
   root.querySelector('[data-start]')?.addEventListener('click', () => startSession(m));

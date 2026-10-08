@@ -9,7 +9,7 @@
 //
 // A タイプ（ジャグラー以外。type = "atype"）も同じ計算で判別する。数える項目は機種ファイルに書いたもの（m.items）で、
 // 型で違うところ（要素の行・設定差の表の組・機械割）は atype.js。項目ごとに分母の G数を持てる（per）のと、
-// 示唆（1回でも数えたら設定を外す）があるのは A タイプだけ
+// 示唆（1回でも数えたら設定を外す）・種別に分けて数える組（種別不明と合算）があるのは A タイプだけ
 import { esc } from './ui.js';
 import * as A from './atype.js';
 
@@ -71,6 +71,12 @@ export function myItems(m) {
 /** 項目の名前（テンキーの見出し・記録に出す。A タイプは組の名前の付いたもの） */
 export const itemLabel = (m, id) => myItems(m).find(it => it.id === id)?.label ?? LABEL[id] ?? id;
 
+/** 種別に分けて数える組（A タイプだけ。チェリー A・B・C と種別不明など） */
+export const splits = m => (isA(m) ? A.splits(m) : []);
+
+/** 項目の回数（A タイプの合算は、種別と種別不明の和） */
+export const countOf = A.countOf;
+
 /** 判別を始める前に出す注意。表から分かること（内訳が無い など）に、機種ファイルの cautions
  *  （データがそろっていない・合っていないところ）を足す。ジャグラーの型でない機種は cautions だけ */
 export function cautions(m) {
@@ -130,9 +136,12 @@ export function excluded(m, s) {
   return idx.size < m.settings.length ? { idx, by } : { idx: new Set(), by: [] };
 }
 
-/** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる */
+/** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる。
+ *  種別に分けて数える組の小役は、1つずつでなく組でまとめて（A.splitLL） */
 export function posterior(m, s, withPrev) {
-  const items = myItems(m).filter(isProb);
+  const items = myItems(m).filter(it => isProb(it) && !it.split);
+  const sps = splits(m);
+  const myG = myGames(s);
   const out = excluded(m, s).idx;
   return normalize(m.settings.map((_, i) => {
     if (out.has(i)) return -Infinity;
@@ -141,6 +150,7 @@ export function posterior(m, s, withPrev) {
       const g = gamesOf(it, s);
       if (g > 0) ll += binomLL(s.counts?.[it.id], g, 1 / colValues(m, it.id)[i]);
     }
+    if (myG > 0) for (const sp of sps) ll += A.splitLL(m, sp, s.counts, myG, i);
     if (withPrev && s.startG > 0) {
       ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]) + binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
     }
@@ -213,6 +223,11 @@ export function measures(m, s) {
     br: ratio(st.own.big, st.own.reg),
   };
   for (const it of myItems(m)) if (isProb(it) && !(it.id in mine)) mine[it.id] = den(gamesOf(it, s), s.counts?.[it.id]);
+  // 種別に分けた組の合算は、合算が分かるとき（種別不明が1回以上か、全部の種別が1回以上）だけ
+  for (const sp of splits(m)) {
+    const k = A.splitState(sp, s.counts);
+    mine[sp.sum.id] = k.totalKnown ? den(st.myG, k.total) : null;
+  }
   const all = {
     big: den(st.totalG, st.all.big), reg: den(st.totalG, st.all.reg), combo: den(st.totalG, st.all.big + st.all.reg),
     br: ratio(st.all.big, st.all.reg),

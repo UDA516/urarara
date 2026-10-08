@@ -123,6 +123,13 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .btn-block { width: 100%; }
 .actions { display: grid; gap: 8px; margin: 16px 0; }
 .actions.two { grid-template-columns: 1fr 1fr; }
+/* 判別を始めるボタン（機種の詳細・逆算）は、下に送っても下のタブの上に出し続ける（ユーザーの指示 2026-10-08）。
+   いちばん下まで送ると元の場所に収まる */
+.actions.dock {
+  position: sticky; bottom: calc(var(--tabs-h) + var(--safe-bottom)); z-index: 5;
+  margin: 16px -16px -24px; padding: 10px 16px;
+  background: var(--bg); border-top: 1px solid var(--border);
+}
 
 /* ---------------------------------------------------------------- 一覧 */
 .list { display: grid; gap: 6px; margin: 8px 0 12px; }
@@ -198,6 +205,9 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .c-rate { text-align: right; font-size: 12px; font-weight: 700; color: var(--rate); }
 /* A タイプの G数の欄（その組の小役の分母） */
 .c-games { margin: 6px 0; }
+/* 種別に分けて数える組の合算（数える欄ではなく和。押すと合算を入れられる） */
+.c-sum .c-name { color: var(--text-dim); }
+.c-sum .c-val { background: transparent; border-style: dashed; }
 /* 示唆で設定を外しているとき */
 .note.excl { color: var(--warn); font-weight: 700; }
 
