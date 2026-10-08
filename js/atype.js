@@ -53,21 +53,31 @@ export function specGroups(m) {
 
 // ---------------------------------------------------------------- 機械割
 
+/** 数字1つか設定ごとの並びの、i 番目の設定の値 */
+const at = (v, i) => (Array.isArray(v) ? v[i] : v);
+/** 画面に出す形（並びは「最小〜最大」） */
+const span = v => (Array.isArray(v) ? `${Math.min(...v)}〜${Math.max(...v)}` : v);
+
 /**
  * 設定ごとの機械割（%）と通常時のベース。1サイクル（ボーナス1回ぶんの通常時）の 払い出し ÷ 投入:
  *   通常時 … 1Gあたり bet 枚を入れ、リプレイ（replay_pay 枚と数える）と小役（pay）を払い出す
  *   ボーナス … BIG・REG 1回の平均の投入（big_in・reg_in）と払い出し（big_out・reg_out）
+ *   RT … BIG のあとの RT（rt_games は1回の平均G数）。ボーナスは RT 中も引けるので、RT のG数はボーナスの確率の分母
+ *         （通常時のG数）の中に入る。その割合だけ通常時の投入・払い出しを減らし、RT の投入・払い出しは big_in・big_out に入れておく
+ * big_in・big_out・reg_in・reg_out・rt_games は、数字1つか設定ごとの並び。
  * hypothesis（仮説）は、その設定だけボーナスの値を置き換えて出す。値が足りなければ null
  */
 export function payoutRates(m) {
   const pm = m.payoutModel || {};
-  if (!(pm.replay > 0 && pm.big_in > 0 && pm.big_out > 0 && pm.reg_in > 0 && pm.reg_out > 0)) return null;
+  const ok = v => (Array.isArray(v) ? v.length === m.settings.length && v.every(x => x > 0) : v > 0);
+  if (!(pm.replay > 0 && ok(pm.big_in) && ok(pm.big_out) && ok(pm.reg_in) && ok(pm.reg_out))) return null;
   const bet = pm.bet ?? 3;
   const roles = items(m).filter(it => it.group === 'role' && !it.per && it.pay != null);
   const normal = m.settings.map((_, i) => (pm.replay_pay ?? 3) / pm.replay + roles.reduce((a, it) => a + it.pay / m.table[it.id][i], 0));
   const rate = (i, b) => {
     const big = m.table.big[i], reg = m.table.reg[i];
-    return (normal[i] + b.big_out / big + b.reg_out / reg) / (bet + b.big_in / big + b.reg_in / reg) * 100;
+    const n = 1 - (at(b.rt_games, i) || 0) / big;   // 通常時の G数のうち、RT でないゲームの割合
+    return (normal[i] * n + at(b.big_out, i) / big + at(b.reg_out, i) / reg) / (bet * n + at(b.big_in, i) / big + at(b.reg_in, i) / reg) * 100;
   };
   return {
     calc: m.settings.map((_, i) => rate(i, pm)),
@@ -90,7 +100,9 @@ export function payoutHtml(m) {
   const notes = [];
   if (r) {
     notes.push(`完全攻略（計算）は、表の小役とボーナスから出した値です（小役を全部取り、ボーナスは成立したゲームで揃える。`
-      + `BIG 1回 投入${pm.big_in}・払い出し${pm.big_out}枚、REG 1回 投入${pm.reg_in}・払い出し${pm.reg_out}枚）`);
+      + `BIG 1回 投入${span(pm.big_in)}・払い出し${span(pm.big_out)}枚${pm.rt_games ? `（あとの RT 平均${span(pm.rt_games)}G を含む）` : ''}、`
+      + `REG 1回 投入${span(pm.reg_in)}・払い出し${span(pm.reg_out)}枚）`);
+    if (pm.rt_games) notes.push('ボーナスは RT 中も引けるので、RT のG数は通常時のG数の中に数えています');
     for (const h of hyps) {
       const swap = [['big_in', 'BIG 投入'], ['big_out', 'BIG 払い出し'], ['reg_in', 'REG 投入'], ['reg_out', 'REG 払い出し']]
         .filter(([k]) => h[k] != null).map(([k, l]) => `${l}${h[k]}枚`).join('・');
