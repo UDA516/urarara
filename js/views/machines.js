@@ -6,7 +6,7 @@ import { esc, md } from '../ui.js';
 import { navigate } from '../nav.js';
 import { startSession, cautionCard } from './judge.js';
 
-const TYPE_LABEL = { juggler: 'ジャグラー', memo: 'メモ' };
+const TYPE_LABEL = { juggler: 'ジャグラー', atype: 'Aタイプ', memo: 'メモ' };
 let query = '';
 let typeFilter = '';
 
@@ -55,10 +55,10 @@ function detail(root, id, tab, ctx) {
     <p class="sub">${esc(info)}</p>
     ${cautionCard(m)}
     ${judge ? `<div class="seg"><a href="${base}" class="${showSpec ? '' : 'on'}">メモ</a><a href="${base}/spec" class="${showSpec ? 'on' : ''}">スペック表</a></div>` : ''}
-    ${showSpec ? `<section class="card"><div class="spec-wrap">${J.specTableHtml(m)}</div></section>` : memo}
+    ${showSpec ? `<section class="card">${J.specTableHtml(m)}</section>` : memo}
     ${payout ? `<section class="card"><div class="card-title">機械割</div>${payout}</section>` : ''}
-    ${judge ? `<div class="actions two">
-      <button type="button" class="btn" data-bc>ぶどう逆算</button>
+    ${judge ? `<div class="actions ${J.canBackcalc(m) ? 'two' : ''}">
+      ${J.canBackcalc(m) ? '<button type="button" class="btn" data-bc>ぶどう逆算</button>' : ''}
       <button type="button" class="btn btn-accent" data-start>判別を始める</button></div>` : ''}`;
   root.querySelector('[data-start]')?.addEventListener('click', () => startSession(m));
   root.querySelector('[data-bc]')?.addEventListener('click', () => navigate('#/backcalc/' + encodeURIComponent(m.id)));

@@ -1,4 +1,4 @@
-// 画面の小さな道具: 文字の書き方・お知らせ・下から出す枠・確認・メモの表示
+// 画面の小さな道具: 文字の書き方・お知らせ・下から出す枠・確認・たためる組の開け閉め・メモの表示
 
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -72,6 +72,25 @@ export function confirmDialog(message, buttons) {
       if (b) sheet.close(buttons[+b.dataset.i].value);
     });
   });
+}
+
+const FOLDS = 'slot-memo.folds';   // たたんだ組（{ scope: [data-fold の値…] }）。端末ごとの好みなので localStorage
+const readFolds = () => { try { return JSON.parse(localStorage.getItem(FOLDS)) || {}; } catch { return {}; } };
+
+/** たためる組（<details data-fold="…" open>）の開け閉めを、scope（画面と機種など）ごとに覚えて戻す */
+export function rememberFolds(root, scope) {
+  const closed = new Set(readFolds()[scope] || []);
+  root.querySelectorAll('details[data-fold]').forEach(d => { d.open = !closed.has(d.dataset.fold); });
+  // toggle は親へ伝わらないので、捕まえる側で受ける
+  root.addEventListener('toggle', e => {
+    const d = e.target;
+    if (!(d instanceof HTMLDetailsElement) || !d.dataset.fold) return;
+    const all = readFolds();
+    const set = new Set(all[scope] || []);
+    if (d.open) set.delete(d.dataset.fold); else set.add(d.dataset.fold);
+    all[scope] = [...set];
+    try { localStorage.setItem(FOLDS, JSON.stringify(all)); } catch { /* 覚えられなくても動く */ }
+  }, true);
 }
 
 /** 機種メモの本文。段落・「-」「・」の箇条書き・**太字** だけを読む（中身は先に esc する） */

@@ -196,9 +196,31 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .c-btn:active { filter: brightness(0.8); }
 .c-val { height: 40px; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px; font-size: 17px; font-weight: 700; }
 .c-rate { text-align: right; font-size: 12px; font-weight: 700; color: var(--rate); }
+/* A タイプの G数の欄（その組の小役の分母） */
+.c-games { margin: 6px 0; }
+/* 示唆で設定を外しているとき */
+.note.excl { color: var(--warn); font-weight: 700; }
+
+/* たためる組（A タイプの判別の画面・設定差の表）。見出しを押すと開け閉め。左の ▾ が閉じると ▸ になる */
+.fold > summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "▾"; flex: none; width: 1em; text-align: center; font-size: 13px; transition: transform 0.15s; }
+.fold:not([open]) > summary::before { transform: rotate(-90deg); }
+.fold > summary.group-title { margin-bottom: 0; padding: 12px 0 10px; }
+.fold[open] > summary.group-title { margin-bottom: 2px; }
+.fold-title { margin: 6px 0 0; padding: 9px 0; border-top: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--warn); }
+.card-title + .fold > .fold-title, .fold:first-child > .fold-title { border-top: 0; margin-top: 0; padding-top: 2px; }
+.fold[open] > .fold-title { margin-bottom: 4px; }
+.fold-sum { margin-left: auto; font-weight: 400; color: var(--text-dim); }
+/* ジャグラーの要素ごと・設定差の表は1つの表なので、カードの見出しでまるごとたたむ */
+.fold > summary.card-title { margin-bottom: 0; padding: 4px 0; }
+.fold[open] > summary.card-title { margin-bottom: 6px; }
 
 .spec-wrap { margin: 0 -12px; padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .spec { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; text-align: center; }
+/* A タイプは表を組（ボーナス・契機・小役など）に分ける。列が少ないので幅を詰め、入らなければ横に送る */
+.spec.fit { min-width: 0; }
+.spec.fit td { white-space: nowrap; }
 .spec th, .spec td { padding: 6px 4px; border: 1px solid var(--border-strong); }
 .spec th { background: var(--surface-3); font-weight: 700; }
 .spec td:first-child { background: var(--surface-2); font-weight: 700; }

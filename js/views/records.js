@@ -174,10 +174,17 @@ async function copyText(text) {
 const csvCell = v => { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
 function toCsv(recs) {
-  const order = Object.keys(J.LABEL);
-  const ids = [...new Set(recs.flatMap(r => Object.keys(r.counts || {})))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  // 列はジャグラーの項目を決まった順で先に、A タイプの項目（機種ファイルに書いた名前）はその後ろに出てきた順で
+  const names = { ...J.LABEL };
+  for (const r of recs) {
+    const m = catalog.machine(r.machineId);
+    if (m && J.isJudgeable(m)) for (const it of J.myItems(m)) names[it.id] ??= it.label;
+  }
+  const order = Object.keys(names);
+  const ids = [...new Set(recs.flatMap(r => Object.keys(r.counts || {})))]
+    .sort((a, b) => (order.indexOf(a) + 1 || 1e9) - (order.indexOf(b) + 1 || 1e9));
   const head = ['日付', '開始', '終了', '店舗', '台番号', '機種', '状態', '前任者のG数', '前任者のBIG', '前任者のREG', '現在の総G', '自分の消化G',
-    ...ids.map(k => J.LABEL[k] || k), '高設定域', '高設定域_自分(%)', '高設定域_前任者込み(%)', 'メモ', 'データの版'];
+    ...ids.map(k => names[k] || k), '高設定域', '高設定域_自分(%)', '高設定域_前任者込み(%)', 'メモ', 'データの版'];
   const pct = p => (p == null ? '' : (p * 100).toFixed(1));
   const rows = recs.map(r => {
     const snap = snapOf(r);

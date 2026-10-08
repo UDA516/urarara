@@ -4,7 +4,7 @@
 import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
 import { kvGet, kvSet, kvDel, recGet, recPut, recAll } from '../db.js';
-import { esc, fmtInt, fmtDen, fmtPct, fmtTime, toast, openSheet, confirmDialog } from '../ui.js';
+import { esc, fmtInt, fmtDen, fmtPct, fmtTime, toast, openSheet, confirmDialog, rememberFolds } from '../ui.js';
 import { openNumpad, editChain } from '../numpad.js';
 import { matches } from '../search.js';
 import { navigate } from '../nav.js';
@@ -212,7 +212,7 @@ async function renderPicker(root, ctx, cur) {
   const draw = q => {
     const rows = list.filter(m => matches(m, q));
     box.innerHTML = rows.map(m => `<button type="button" class="row" data-id="${esc(m.id)}"><span class="row-main">${esc(m.name)}</span>${recent.includes(m.id) ? '<span class="row-sub">最近使った</span>' : ''}</button>`).join('')
-      || `<p class="empty">${list.length ? '当てはまる機種がありません' : '判別できる機種（ジャグラーの型）がまだありません'}</p>`;
+      || `<p class="empty">${list.length ? '当てはまる機種がありません' : '判別できる機種がまだありません'}</p>`;
   };
   draw('');
   root.querySelector('[data-q]').addEventListener('input', e => draw(e.target.value));
@@ -238,15 +238,55 @@ function renderSession(root, s, ctx) {
   const hl = J.highLabel(m);
   const order = [...m.settings.keys()].reverse();   // 設定6 を上に（渡されたカウンターと同じ）
   const field = (key, label) => `<button type="button" class="field" data-edit="${key}"><span class="k">${label}</span><b data-v="${key}"></b></button>`;
-  const counter = it => `<div class="counter">
-      <span class="c-name">${esc(it.label)}</span>
+  // A タイプの G数の欄（ボーナスゲーム中のG数など。その組の小役の分母）は、カウンターでなくテンキーで入れる欄
+  const counter = it => (it.group === 'games'
+    ? `<button type="button" class="field c-games" data-edit-count="${it.id}"><span class="k">${esc(it.short)}</span><b data-count="${it.id}"></b></button>`
+    : `<div class="counter">
+      <span class="c-name">${esc(it.short ?? it.label)}</span>
       <button type="button" class="c-btn minus" data-dec="${it.id}" aria-label="${esc(it.label)}を1減らす">−</button>
       <button type="button" class="c-val" data-edit-count="${it.id}" data-count="${it.id}"></button>
       <button type="button" class="c-btn plus" data-inc="${it.id}" aria-label="${esc(it.label)}を1増やす">＋</button>
       <span class="c-rate" data-rate="${it.id}"></span>
-    </div>`;
-  const bonusItems = items.filter(i => i.group === 'bonus');
-  const roleItems = items.filter(i => i.group === 'role');
+    </div>`);
+  // 組ごとに見出しを付ける。ジャグラーはボーナス（契機）と小役の2つ、A タイプは機種ファイルの組（sec）
+  const sections = [];
+  for (const it of items) {
+    const title = it.sec ? (it.group === 'bonus' ? `${it.sec}（契機）` : it.sec)
+      : (it.group === 'bonus' ? '自分のボーナス（契機）' : '自分の小役');
+    let sec = sections.find(x => x.title === title);
+    if (!sec) sections.push(sec = { title, items: [] });
+    sec.items.push(it);
+  }
+  const hintNote = it => `<p class="note">「${esc(it.short)}」を1回でも数えたら、${it.note ? `${esc(it.note)}として` : ''}`
+    + `設定${it.excludes.map(i => esc(m.settings[i])).join('・')}を外して計算します</p>`;
+  // 縦に長いので、見出しを押してたためる（ユーザーの指示 2026-10-08。A タイプで始め、ジャグラーも同じに）。
+  // 開け閉めは機種ごとに端末に覚える。ボーナスの組は、たたんでも回数が分かるように見出しに合計を出す
+  const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}" open>${head}${body}</details>`;
+  const sectionHtml = (sec, k) => {
+    const body = sec.items.map(counter).join('')
+      + (sec.items.some(it => it.per === 'big') ? '<p class="note">右の％は、自分の BIG の回数に対する割合です</p>' : '')
+      + sec.items.filter(it => it.group === 'hint').map(hintNote).join('');
+    const sum = sec.items.some(it => it.group === 'bonus') ? `<span class="fold-sum" data-fold-sum="${k}"></span>` : '';
+    return fold(`cnt:${sec.title}`, `<summary class="group-title">${esc(sec.title)}${sum}</summary>`, body);
+  };
+  // 要素ごと・設定差の表のカード。中が組に分かれていれば（A タイプ）組ごとに、1つの表なら（ジャグラー。
+  // 並びは元の HTML のまま）カードの見出しでまるごとたたむ
+  const card = (key, title, body, grouped) => `<section class="card">${grouped
+    ? `<div class="card-title">${title}</div>${body}`
+    : fold(key, `<summary class="card-title">${title}</summary>`, body)}</section>`;
+  // 要素ごとの表。行に組（sec）があれば組ごとの表にする。前任者込みの列は、その列のある組だけ
+  const elTable = (rows, both) => `<table class="tbl"><thead><tr><th>要素</th><th>自分</th>${both ? '<th>前任者込み</th>' : ''}</tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${esc(r.label)}</td><td data-el="mine:${r.c}"></td>${both ? `<td ${r.both ? `data-el="all:${r.c}"` : ''}>${r.both ? '' : '—'}</td>` : ''}</tr>`).join('')}
+      </tbody></table>`;
+  const elGroups = [];
+  for (const r of J.elementRows(m)) {
+    let g = elGroups.find(x => x.title === (r.sec || ''));
+    if (!g) elGroups.push(g = { title: r.sec || '', rows: [] });
+    g.rows.push(r);
+  }
+  const elementHtml = elGroups.map(g => (g.title
+    ? fold(`el:${g.title}`, `<summary class="fold-title">${esc(g.title)}</summary>`, elTable(g.rows, g.rows.some(r => r.both)))
+    : elTable(g.rows, true))).join('');
   const notes = J.cautions(m);   // 始めるときに出した注意。途中から開いたときのために、たたんで残す
 
   root.innerHTML = `
@@ -263,16 +303,12 @@ function renderSession(root, s, ctx) {
         <span class="bar"><i data-bar="mine:${i}"></i><em data-pct="mine:${i}"></em></span>
         <span class="bar"><i data-bar="all:${i}"></i><em data-pct="all:${i}"></em></span>
       </div>`).join('')}
+      <p class="note excl" data-excl hidden></p>
       <p class="note">どの設定も同じ割合で入っていると置いた計算です（実際より高設定寄りに出ます）。小役は自分の消化Gのぶんだけを使います。</p>
       ${notes.length ? `<details class="caution-fold"><summary>この機種のデータの注意（${notes.length}件）</summary>
         <ul>${notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
     </section>
-    <section class="card">
-      <div class="card-title">要素ごと（近い設定）</div>
-      <table class="tbl"><thead><tr><th>要素</th><th>自分</th><th>前任者込み</th></tr></thead><tbody>
-        ${J.elementRows(m).map(r => `<tr><td>${esc(r.label)}</td><td data-el="mine:${r.c}"></td><td ${r.both ? `data-el="all:${r.c}"` : ''}>${r.both ? '' : '—'}</td></tr>`).join('')}
-      </tbody></table>
-    </section>
+    ${card('el:all', '要素ごと（近い設定）', elementHtml, elGroups.some(g => g.title))}
     <section class="card">
       <div class="card-title">前任者（打ち始め時）</div>
       <div class="fields3">${field('startG', 'G数（打ち始めG）')}${field('prevBig', 'BIG')}${field('prevReg', 'REG')}</div>
@@ -280,20 +316,18 @@ function renderSession(root, s, ctx) {
     <section class="card">
       <div class="card-title">自分</div>
       <div class="fields2">${field('totalG', '現在の総G')}<div class="field static"><span class="k">自分の消化G</span><b data-v="myG"></b></div></div>
-      <div class="group-title">自分のボーナス（契機）</div>
-      ${bonusItems.map(counter).join('')}
-      ${roleItems.length ? `<div class="group-title">自分の小役</div>${roleItems.map(counter).join('')}` : ''}
+      ${sections.map(sectionHtml).join('')}
     </section>
-    <section class="card">
-      <div class="card-title">設定差の表</div>
-      <div class="spec-wrap">${J.specTableHtml(m)}</div>
-      <p class="note"><span class="mk mk-near">塗り</span>近い設定。BB・RB・合算・BR比率は前任者と自分を合わせた値、ほかの列は自分の値（自分の消化Gと自分の回数）で</p>
-    </section>
+    ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}
+      <p class="note"><span class="mk mk-near">塗り</span>近い設定。BB・RB・合算・BR比率は前任者と自分を合わせた値、ほかの列は自分の値（自分の消化Gと自分の回数）で</p>`,
+      J.specGroups(m).some(g => g.title))}
     <div class="actions">
       <button type="button" class="btn btn-block" data-memo></button>
       <button type="button" class="btn btn-accent btn-block" data-end>終了して記録へ</button>
       <button type="button" class="btn btn-ghost btn-block" data-new>新しく始める</button>
     </div>`;
+
+  rememberFolds(root, `judge:${m.id}`);
 
   const $ = sel => root.querySelector(sel);
   const setText = (sel, text) => { const el = $(sel); if (el) el.textContent = text; };
@@ -313,13 +347,29 @@ function renderSession(root, s, ctx) {
       });
     }
 
+    const ex = J.excluded(m, s);
+    $('[data-excl]').hidden = !ex.by.length;
+    setText('[data-excl]', ex.by.length
+      ? `示唆（${ex.by.map(it => it.label).join('・')}）で、設定${[...ex.idx].sort((a, b) => a - b).map(i => m.settings[i]).join('・')}を外しています` : '');
+
     for (const f of FIELDS) setText(`[data-v="${f.key}"]`, fmtInt(s[f.key]));
     setText('[data-v="myG"]', fmtInt(myG));
+    const ownBig = J.stats(m, s).own.big;
+    // 自分の確率 1/x。分母は自分の消化G（A タイプは項目の G数の欄のこともある）。
+    // A タイプの示唆・数えるだけの項目は、per が "big" なら自分の BIG に対する割合
+    const rateText = (it, k) => {
+      if (it.per === 'big') return ownBig > 0 ? fmtPct(k / ownBig) : '—';
+      if (it.group !== 'bonus' && it.group !== 'role') return '—';
+      const g = it.per ? s.counts[it.per] || 0 : myG;
+      return g > 0 && k > 0 ? fmtDen(g / k) : '—';
+    };
     for (const it of items) {
       const k = s.counts[it.id] || 0;
-      setText(`[data-count="${it.id}"]`, String(k));
-      setText(`[data-rate="${it.id}"]`, myG > 0 && k > 0 ? fmtDen(myG / k) : '—');
+      setText(`[data-count="${it.id}"]`, it.group === 'games' ? fmtInt(k) : String(k));
+      setText(`[data-rate="${it.id}"]`, rateText(it, k));
     }
+    sections.forEach((sec, k) => setText(`[data-fold-sum="${k}"]`,
+      `計${sec.items.filter(it => it.group === 'bonus').reduce((a, it) => a + (s.counts[it.id] || 0), 0)}回`));
 
     const meas = J.measures(m, s);
     root.querySelectorAll('[data-el]').forEach(td => {
@@ -373,7 +423,7 @@ function renderSession(root, s, ctx) {
       update();
     } else if ((b = t.closest('[data-edit-count]'))) {
       const id = b.dataset.editCount;
-      const r = await openNumpad({ title: J.LABEL[id] || id, value: s.counts[id] || 0 });
+      const r = await openNumpad({ title: J.itemLabel(m, id), value: s.counts[id] || 0 });
       if (r) { s.counts[id] = Math.max(0, r.value); save(); update(); }
     } else if ((b = t.closest('[data-edit]'))) {
       const start = FIELDS.findIndex(f => f.key === b.dataset.edit);

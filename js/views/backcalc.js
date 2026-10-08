@@ -17,7 +17,7 @@ const FIELDS = [
 
 export async function render(root, args, ctx) {
   ctx.setBar({ title: 'ぶどう逆算（座る前）' });
-  const list = catalog.machines().filter(J.isJudgeable);
+  const list = catalog.machines().filter(J.canBackcalc);   // ジャグラーだけ（A タイプは逆算しない）
   const st = Object.assign({ machineId: null }, EMPTY, await kvGet('backcalc'));
   if (args[0]) st.machineId = args[0];   // 機種の画面の「ぶどう逆算」から
   if (!list.some(m => m.id === st.machineId)) st.machineId = list[0]?.id ?? null;

@@ -6,7 +6,12 @@
 //   自分だけ     … 自分の項目（契機別のボーナス・小役）を自分の消化Gで
 //   前任者込み   … 上に、前任者の BIG・REG を前任者のG数（打ち始めG）で足す。小役は自分の消化Gのぶんだけ
 // 前任者のぶどう逆算はここに入れない（座る前の目安。backcalc）
+//
+// A タイプ（ジャグラー以外。type = "atype"）も同じ計算で判別する。数える項目は機種ファイルに書いたもの（m.items）で、
+// 型で違うところ（要素の行・設定差の表の組・機械割）は atype.js。項目ごとに分母の G数を持てる（per）のと、
+// 示唆（1回でも数えたら設定を外す）があるのは A タイプだけ
 import { esc } from './ui.js';
+import * as A from './atype.js';
 
 export const LABEL = {
   big: 'BIG', reg: 'REG', t_big: '単独BIG', t_reg: '単独REG', c_big: 'チェリーBIG', c_reg: 'チェリーREG',
@@ -15,9 +20,17 @@ export const LABEL = {
 
 const has = (m, c) => Array.isArray(m.table?.[c]);
 
+const isA = m => m?.type === 'atype';
+
 export function isJudgeable(m) {
-  return !!m && m.type === 'juggler' && has(m, 'big') && has(m, 'reg');
+  return !!m && (m.type === 'juggler' || isA(m)) && has(m, 'big') && has(m, 'reg');
 }
+
+/** ぶどう逆算はジャグラーだけ（A タイプはボーナスの純増のぶれが大きく、逆算しない。ユーザーの指示 2026-10-08） */
+export const canBackcalc = m => isJudgeable(m) && m.type === 'juggler';
+
+/** 判別の計算に入る項目か（A タイプの G数の欄・示唆・数えるだけの項目は入らない。ジャグラーの項目は全部入る） */
+const isProb = A.isProb;
 
 /** 列に設定差があるか */
 const varies = (m, c) => has(m, c) && m.table[c].some(v => Math.abs(v - m.table[c][0]) > 1e-9);
@@ -29,8 +42,10 @@ const cherryCol = m => (has(m, 't_cherry') ? 't_cherry' : 'cherry');
 /** 数えるチェリーに設定差があるか。無い機種はチェリーを数えない（チェリー重複のボーナスだけ数える） */
 export const cherryVaries = m => varies(m, cherryCol(m));
 
-/** 自分が数える項目。表に内訳の列があれば契機別、無ければ BIG・REG。小役は表にあるものだけ */
+/** 自分が数える項目。表に内訳の列があれば契機別、無ければ BIG・REG。小役は表にあるものだけ。
+ *  A タイプは機種ファイルに書いた項目（short は組の中での短い名前、sec は組の名前） */
 export function myItems(m) {
+  if (isA(m)) return A.items(m);
   const items = [];
   const bonus = (id, kind) => items.push({ id, label: LABEL[id], group: 'bonus', kind });
   if (has(m, 't_big') && has(m, 't_reg')) {
@@ -53,11 +68,14 @@ export function myItems(m) {
   return items;
 }
 
+/** 項目の名前（テンキーの見出し・記録に出す。A タイプは組の名前の付いたもの） */
+export const itemLabel = (m, id) => myItems(m).find(it => it.id === id)?.label ?? LABEL[id] ?? id;
+
 /** 判別を始める前に出す注意。表から分かること（内訳が無い など）に、機種ファイルの cautions
  *  （データがそろっていない・合っていないところ）を足す。ジャグラーの型でない機種は cautions だけ */
 export function cautions(m) {
   const list = [];
-  if (isJudgeable(m)) {
+  if (isJudgeable(m) && !isA(m)) {
     if (!(has(m, 't_big') && has(m, 't_reg'))) list.push('単独・チェリー重複の内訳がまだ無いので、ボーナスは BIG・REG だけで数えます');
     if (!has(m, 'grape')) list.push('ぶどうの表が無いので、ぶどうは数えません');
   }
@@ -97,13 +115,32 @@ function normalize(lls) {
   return w.map(x => x / sum);
 }
 
+/** 項目の分母の G数。ふつうは自分の消化G、per のある項目（A タイプ）はその G数の欄 */
+const gamesOf = (it, s) => (it.per ? s.counts?.[it.per] || 0 : myGames(s));
+
+/** 示唆で外す設定（添字の Set）と、外した理由の項目。全部の設定が外れるときは外さない */
+export function excluded(m, s) {
+  const idx = new Set();
+  const by = [];
+  for (const it of myItems(m)) {
+    if (it.group !== 'hint' || !(s.counts?.[it.id] > 0)) continue;
+    it.excludes.forEach(i => idx.add(i));
+    by.push(it);
+  }
+  return idx.size < m.settings.length ? { idx, by } : { idx: new Set(), by: [] };
+}
+
 /** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる */
 export function posterior(m, s, withPrev) {
-  const myG = myGames(s);
-  const items = myItems(m);
+  const items = myItems(m).filter(isProb);
+  const out = excluded(m, s).idx;
   return normalize(m.settings.map((_, i) => {
+    if (out.has(i)) return -Infinity;
     let ll = 0;
-    if (myG > 0) for (const it of items) ll += binomLL(s.counts?.[it.id], myG, 1 / colValues(m, it.id)[i]);
+    for (const it of items) {
+      const g = gamesOf(it, s);
+      if (g > 0) ll += binomLL(s.counts?.[it.id], g, 1 / colValues(m, it.id)[i]);
+    }
     if (withPrev && s.startG > 0) {
       ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]) + binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
     }
@@ -175,7 +212,7 @@ export function measures(m, s) {
     big: den(st.myG, st.own.big), reg: den(st.myG, st.own.reg), combo: den(st.myG, st.own.big + st.own.reg),
     br: ratio(st.own.big, st.own.reg),
   };
-  for (const it of myItems(m)) if (!(it.id in mine)) mine[it.id] = den(st.myG, s.counts?.[it.id]);
+  for (const it of myItems(m)) if (isProb(it) && !(it.id in mine)) mine[it.id] = den(gamesOf(it, s), s.counts?.[it.id]);
   const all = {
     big: den(st.totalG, st.all.big), reg: den(st.totalG, st.all.reg), combo: den(st.totalG, st.all.big + st.all.reg),
     br: ratio(st.all.big, st.all.reg),
@@ -185,6 +222,7 @@ export function measures(m, s) {
 
 /** 要素ごとの表の行（渡されたカウンターの重要度順に、BIG・REG と残りの内訳を足した） */
 export function elementRows(m) {
+  if (isA(m)) return A.elementRows(m);
   const rows = [];
   const add = (c, label, both = false) => {
     if (c === 'combo' || c === 'big' || c === 'reg' || has(m, c)) rows.push({ c, label, both });
@@ -210,8 +248,16 @@ export function elementRows(m) {
 // 自分の値（自分の消化Gと自分の回数）で塗る。前任者は BIG・REG の合計しか分からないため
 const WITH_PREV = new Set(['combo', 'big', 'reg', 'br']);
 
-/** 設定差の表の列（渡されたカウンターの11列。チェリーは設定差があるときだけ） */
-export function specColumns(m) {
+/** 設定差の表の組（{ title, cols }）。ジャグラーは1つの表、A タイプはボーナス・契機・小役などに分ける */
+export function specGroups(m) {
+  return isA(m) ? A.specGroups(m) : [{ title: '', cols: jugglerColumns(m) }];
+}
+
+/** 設定差の表の列（全部の組を合わせたもの） */
+export const specColumns = m => specGroups(m).flatMap(g => g.cols);
+
+/** ジャグラーの設定差の表の列（渡されたカウンターの11列。チェリーは設定差があるときだけ） */
+function jugglerColumns(m) {
   const raw = v => String(v);
   const cols = [];
   if (Array.isArray(m.table.payout)) cols.push({ c: 'payout', label: '出玉率', text: raw });
@@ -230,21 +276,27 @@ export function specColumns(m) {
   return cols;
 }
 
+/** 設定差の表（横に送れる枠ごと）。名前のある組（A タイプ）は、見出しを押すとたためる（data-fold は ui.js の
+ *  rememberFolds で開け閉めを覚える鍵）。A タイプの表は列が少ないので幅を詰める */
 export function specTableHtml(m) {
-  const cols = specColumns(m);
-  const head = `<tr><th>設定</th>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
-  const body = m.settings.map((s, i) => `<tr><td>${esc(s)}</td>${cols.map(c => {
-    const v = c.c === 'payout' ? m.table.payout[i] : colValues(m, c.c)[i];
-    return `<td data-spec="${c.c}:${i}">${esc(c.text(v))}</td>`;
-  }).join('')}</tr>`).join('');
-  return `<table class="spec"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  return specGroups(m).map(({ title, cols }) => {
+    const head = `<tr><th>設定</th>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
+    const body = m.settings.map((s, i) => `<tr><td>${esc(s)}</td>${cols.map(c => {
+      const v = c.c === 'payout' ? m.table.payout[i] : colValues(m, c.c)[i];
+      return `<td data-spec="${c.c}:${i}">${esc(c.text(v))}</td>`;
+    }).join('')}</tr>`).join('');
+    const table = `<div class="spec-wrap"><table class="spec${isA(m) ? ' fit' : ''}"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    return title
+      ? `<details class="fold" data-fold="${esc(`spec:${title}`)}" open><summary class="fold-title">${esc(title)}</summary>${table}</details>`
+      : table;
+  }).join('');
 }
 
 /** 設定差の表で塗る設定（{ 列: [設定の添字…] }）。meas は measures() の結果。0回の列は塗らない */
 export function specMarks(m, meas) {
   const marks = {};
-  for (const { c } of specColumns(m)) {
-    if (c === 'payout') continue;
+  for (const { c, noMark } of specColumns(m)) {
+    if (c === 'payout' || noMark) continue;
     const near = nearest(m, c, (WITH_PREV.has(c) ? meas.all : meas.mine)[c]);
     if (near) marks[c] = near.idx;
   }
@@ -272,8 +324,9 @@ export function payoutRates(m) {
   return { aim, full: pm.skill?.length ? aim.map(v => v + skill) : null };
 }
 
-/** 機械割の表（公表値・チェリー狙い・完全攻略）と、出し方の断り。出せるものが無ければ空 */
+/** 機械割の表（公表値・チェリー狙い・完全攻略）と、出し方の断り。出せるものが無ければ空。A タイプは atype.js */
 export function payoutHtml(m) {
+  if (isA(m)) return A.payoutHtml(m);
   const r = payoutRates(m);
   const pub = Array.isArray(m.table.payout) ? m.table.payout : null;
   if (!r && !pub) return '';
