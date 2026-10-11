@@ -26,6 +26,11 @@ const varies = (m, c) => Array.isArray(m.table?.[c]) && m.table[c].some(v => Mat
 /** 項目の組の名前（要素ごとの表・設定差の表）。ボーナスは「白7BBの契機」のように */
 const groupTitle = it => (it.group === 'bonus' ? `${it.sec}の契機` : it.sec);
 
+/** 契機の内訳が無いボーナス（ボーナスの組に項目が1つだけ）。その項目は BIG・REG そのものなので、要素ごと・設定差の表の
+ *  契機の行・列には出さない（ボーナスの BIG・REG と同じものが二重に出るため）。判別の画面では「ボーナス」の組にまとめる */
+export const plainBonus = (m, it) => it.group === 'bonus'
+  && items(m).filter(x => x.group === 'bonus' && x.sec === it.sec).length === 1;
+
 // ---------------------------------------------------------------- 後から内訳が分かる組
 // ユーザーの指示 2026-10-08（台のデータ表示の見え方）: 合算は最初から見られ、種別は条件を満たすと見られる。
 // 見られるようになった数字は打ち始めからの全部。なので合算はいつも数え、種別は見られるようになったら打ち始めからの
@@ -99,7 +104,8 @@ export function elementRows(m) {
     { c: 'combo', label: 'ボーナス合算', both: true, sec: 'ボーナス' },
     { c: 'big', label: 'BIG', both: true, sec: 'ボーナス' },
     { c: 'reg', label: 'REG', both: true, sec: 'ボーナス' },
-    ...items(m).filter(it => hasCol(it) && !it.hidden && varies(m, it.id)).map(it => ({ c: it.id, label: it.short, both: false, sec: groupTitle(it) })),
+    ...items(m).filter(it => hasCol(it) && !it.hidden && !plainBonus(m, it) && varies(m, it.id))
+      .map(it => ({ c: it.id, label: it.short, both: false, sec: groupTitle(it) })),
   ];
 }
 
@@ -118,7 +124,7 @@ export function specGroups(m) {
     { c: 'reg', label: 'RB確率', text: v => v.toFixed(1) },
   );
   const groups = [{ title: 'ボーナス', cols: head }];
-  for (const it of items(m).filter(hasCol)) {
+  for (const it of items(m).filter(it => hasCol(it) && !plainBonus(m, it))) {
     const title = groupTitle(it);
     let g = groups.find(x => x.title === title);
     if (!g) groups.push(g = { title, cols: [] });

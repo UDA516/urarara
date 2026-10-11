@@ -73,6 +73,9 @@ export function myItems(m) {
   return items;
 }
 
+/** 契機の内訳が無いボーナスの項目か（A タイプだけ。判別の画面で「ボーナス」の組にまとめる） */
+export const plainBonus = (m, it) => isA(m) && A.plainBonus(m, it);
+
 /** 項目の名前（テンキーの見出し・記録に出す。A タイプは組の名前の付いたもの） */
 export const itemLabel = (m, id) => myItems(m).find(it => it.id === id)?.label ?? LABEL[id] ?? id;
 

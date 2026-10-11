@@ -257,10 +257,11 @@ function renderSession(root, s, ctx) {
       <button type="button" class="c-btn plus" data-inc="${it.id}" aria-label="${esc(it.label)}を1増やす">＋</button>
       <span class="c-rate" data-rate="${it.id}"></span>
     </div>`);
-  // 組ごとに見出しを付ける。ジャグラーはボーナス（契機）と小役の2つ、A タイプは機種ファイルの組（sec）
+  // 組ごとに見出しを付ける。ジャグラーはボーナス（契機）と小役の2つ、A タイプは機種ファイルの組（sec）。
+  // A タイプで契機の内訳が無いボーナス（組に BIG・REG が1つだけ）は、まとめて「ボーナス」の組に
   const sections = [];
   for (const it of items) {
-    const title = it.sec ? (it.group === 'bonus' ? `${it.sec}（契機）` : it.sec)
+    const title = it.sec ? (it.group === 'bonus' ? (J.plainBonus(m, it) ? 'ボーナス' : `${it.sec}（契機）`) : it.sec)
       : (it.group === 'bonus' ? '自分のボーナス（契機）' : '自分の小役');
     let sec = sections.find(x => x.title === title);
     if (!sec) sections.push(sec = { title, items: [] });
