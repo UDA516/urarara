@@ -235,20 +235,22 @@ function renderSession(root, s, ctx) {
 
   const items = J.myItems(m);
   const hi = J.highIndex(m);
-  const hl = J.highLabel(m);
   const order = [...m.settings.keys()].reverse();   // 設定6 を上に（渡されたカウンターと同じ）
   const field = (key, label) => `<button type="button" class="field" data-edit="${key}"><span class="k">${label}</span><b data-v="${key}"></b></button>`;
   // A タイプの G数の欄（ボーナスゲーム中のG数など。その組の小役の分母）は、カウンターでなくテンキーで入れる欄。
-  // 合算（種別に分けて数える組）は数える欄ではなく和を出す行。押して入れると、種別不明をその差にする
+  // 後から内訳が分かる組: 合算と見られる種別はカウンター（合算は種別が全部分かると種別の和になり、±を隠す。update）。
+  // 単独では見られない種別（hidden）は欄を出さず、まとめた行（rest）は数える欄ではなく 合算 − 分かった種別 を出す行。
+  // 小役・合算は、数字が入るまで「—」（数えていない。計算に入れない）
   const counter = it => (it.group === 'games'
     ? `<button type="button" class="field c-games" data-edit-count="${it.id}"><span class="k">${esc(it.short)}</span><b data-count="${it.id}"></b></button>`
-    : it.group === 'sum'
+    : it.hidden ? ''
+    : it.group === 'rest'
     ? `<div class="counter c-sum">
       <span class="c-name">${esc(it.short)}</span><span></span>
-      <button type="button" class="c-val" data-edit-sum="${it.id}" data-count="${it.id}" aria-label="${esc(it.label)}を入れる"></button><span></span>
+      <span class="c-val" data-count="${it.id}"></span><span></span>
       <span class="c-rate" data-rate="${it.id}"></span>
     </div>`
-    : `<div class="counter">
+    : `<div class="counter" data-counter="${it.id}">
       <span class="c-name">${esc(it.short ?? it.label)}</span>
       <button type="button" class="c-btn minus" data-dec="${it.id}" aria-label="${esc(it.label)}を1減らす">−</button>
       <button type="button" class="c-val" data-edit-count="${it.id}" data-count="${it.id}"></button>
@@ -266,13 +268,20 @@ function renderSession(root, s, ctx) {
   }
   const hintNote = it => `<p class="note">「${esc(it.short)}」を1回でも数えたら、${it.note ? `${esc(it.note)}として` : ''}`
     + `設定${it.excludes.map(i => esc(m.settings[i])).join('・')}を外して計算します</p>`;
-  // 種別に分けて数える組の読み方（ユーザーの指示 2026-10-08「B しか分からない場面がある」）
+  // 後から内訳が分かる組の読み方（ユーザーの指示 2026-10-08。台のデータ表示は合算を最初から、種別は条件を満たすと見せる）
   const splitNote = sum => {
-    const unk = esc(items.find(it => it.id === sum.unknown).short);
-    return `<p class="note">種別の分からないものは「${unk}」へ。${esc(sum.short)}は種別と「${unk}」の和で、押して入れると「${unk}」をその差にします。`
-      + `計算では、0回のままの種別は「分からない」と読み（0回だったとは読まない）、「${unk}」はその種別のどれかとして扱います。`
-      + `${esc(sum.short)}の確率は「${unk}」か全部の種別が1回以上のときに出します</p>`;
+    const vis = items.filter(it => it.split === sum.id && it.group === 'role' && !it.hidden).map(it => `「${esc(it.short)}」`).join('・');
+    const rest = items.find(it => it.group === 'rest' && it.split === sum.id);
+    return `<p class="note">${esc(sum.short)}はいつも数えます。${vis}は見られるようになったら、打ち始めからの回数を入れます`
+      + `（それまでは「—」＝分からない。0回とは別）。${rest
+        ? `${vis}が分かると「${esc(rest.short)}」（${esc(sum.short)} − ${vis}）を出します`
+        : `全部入れると${esc(sum.short)}はその和になります`}</p>`;
   };
+  // 小役の「—」（ユーザーと決めたこと 2026-10-08）
+  const dashNote = items.some(J.optional)
+    ? '<p class="note">小役は、押していない欄は「—」（数えていない）で、計算に入れません。数え始めたら 0回も「引かなかった」として入れます。'
+      + 'テンキーで C を押して決定すると「—」に戻ります。ボーナスは 0回 ＝ 引かなかった です</p>'
+    : '';
   // 縦に長いので、見出しを押してたためる（ユーザーの指示 2026-10-08。A タイプで始め、ジャグラーも同じに）。
   // 開け閉めは機種ごとに端末に覚える。ボーナスの組は、たたんでも回数が分かるように見出しに合計を出す
   const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}" open>${head}${body}</details>`;
@@ -307,8 +316,8 @@ function renderSession(root, s, ctx) {
   root.innerHTML = `
     <button type="button" class="place" data-place></button>
     <button type="button" class="summary" data-top aria-label="結果の先頭へ">
-      <span><span class="k">${esc(hl)}以上 · 自分</span><b data-sum="mine">—</b></span>
-      <span><span class="k">${esc(hl)}以上 · 前任者込み</span><b data-sum="all">—</b></span>
+      <span><span class="k">近似の設定 · 自分</span><b data-sum="mine">—</b><span class="sum-p" data-sum-p="mine"></span></span>
+      <span><span class="k">近似の設定 · 前任者込み</span><b data-sum="all">—</b><span class="sum-p" data-sum-p="all"></span></span>
     </button>
     <section class="card">
       <div class="card-title">設定の確からしさ</div>
@@ -332,6 +341,7 @@ function renderSession(root, s, ctx) {
       <div class="card-title">自分</div>
       <div class="fields2">${field('totalG', '現在の総G')}<div class="field static"><span class="k">自分の消化G</span><b data-v="myG"></b></div></div>
       ${sections.map(sectionHtml).join('')}
+      ${dashNote}
     </section>
     ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}
       <p class="note"><span class="mk mk-near">塗り</span>近い設定。BB・RB・合算・BR比率は前任者と自分を合わせた値、ほかの列は自分の値（自分の消化Gと自分の回数）で</p>`,
@@ -353,8 +363,12 @@ function renderSession(root, s, ctx) {
     const allOn = mineOn || (s.startG || 0) > 0;
     const pm = mineOn ? J.posterior(m, s, false) : null;
     const pa = allOn ? J.posterior(m, s, true) : null;
-    setText('[data-sum="mine"]', pm ? fmtPct(J.highShare(m, pm)) : '—');
-    setText('[data-sum="all"]', pa ? fmtPct(J.highShare(m, pa)) : '—');
+    // 上の要約は、いちばん確からしい設定とその割合（ユーザーの指示 2026-10-10。前は「4以上」の割合）
+    for (const [kind, probs] of [['mine', pm], ['all', pa]]) {
+      const top = probs && J.topSetting(m, probs);
+      setText(`[data-sum="${kind}"]`, top ? `設定${top.text}` : '—');
+      setText(`[data-sum-p="${kind}"]`, top ? `${top.idx.length > 1 ? '各' : ''}${fmtPct(top.p)}` : '');
+    }
     for (const [kind, probs] of [['mine', pm], ['all', pa]]) {
       m.settings.forEach((_, i) => {
         $(`[data-bar="${kind}:${i}"]`).style.width = probs ? `${(probs[i] * 100).toFixed(1)}%` : '0';
@@ -372,18 +386,22 @@ function renderSession(root, s, ctx) {
     const meas = J.measures(m, s);
     const ownBig = meas.st.own.big;
     // 自分の確率 1/x。分母は自分の消化G（A タイプは項目の G数の欄のこともある）。
-    // A タイプの示唆・数えるだけの項目は、per が "big" なら自分の BIG に対する割合。合算は分かるときだけ（measures）
+    // A タイプの示唆・数えるだけの項目は、per が "big" なら自分の BIG に対する割合。合算・まとめた行は measures のもの
     const rateText = (it, k) => {
       if (it.per === 'big') return ownBig > 0 ? fmtPct(k / ownBig) : '—';
-      if (it.group === 'sum') return fmtDen(meas.mine[it.id]);
+      if (it.group === 'sum' || it.group === 'rest') return fmtDen(meas.mine[it.id]);
       if (it.group !== 'bonus' && it.group !== 'role') return '—';
       const g = it.per ? s.counts[it.per] || 0 : myG;
       return g > 0 && k > 0 ? fmtDen(g / k) : '—';
     };
     for (const it of items) {
-      const k = J.countOf(it, s.counts);
-      setText(`[data-count="${it.id}"]`, it.group === 'games' ? fmtInt(k) : String(k));
+      const k = J.countOf(m, it, s.counts);
+      setText(`[data-count="${it.id}"]`, it.group === 'games' ? fmtInt(k) : k == null ? '—' : String(k));
       setText(`[data-rate="${it.id}"]`, rateText(it, k));
+    }
+    // 後から内訳が分かる組で、見られる種別が全部分かれば合算は種別の和（±を隠し、押しても直せない）
+    for (const sp of J.splits(m)) {
+      root.querySelector(`[data-counter="${sp.sum.id}"]`)?.classList.toggle('fixed', !J.splitState(sp, s.counts).open);
     }
     sections.forEach((sec, k) => setText(`[data-fold-sum="${k}"]`,
       `計${sec.items.filter(it => it.group === 'bonus').reduce((a, it) => a + (s.counts[it.id] || 0), 0)}回`));
@@ -433,23 +451,23 @@ function renderSession(root, s, ctx) {
     const t = e.target;
     let b;
     if ((b = t.closest('[data-inc]')) || (b = t.closest('[data-dec]'))) {
+      // 「—」から＋で1（数え始め）。「—」は−で変えない
       const id = b.dataset.inc || b.dataset.dec;
-      s.counts[id] = Math.max(0, (s.counts[id] || 0) + (b.dataset.inc ? 1 : -1));
+      const cur = Number.isFinite(s.counts[id]) ? s.counts[id] : null;
+      if (b.dataset.dec && cur == null) return;
+      s.counts[id] = Math.max(0, (cur ?? 0) + (b.dataset.inc ? 1 : -1));
       save();
       update();
     } else if ((b = t.closest('[data-edit-count]'))) {
+      // 小役・合算はテンキーで 0 も入れられ（数えて0回）、C で消して決定すると「—」（数えていない）に戻る
+      if (b.closest('.counter.fixed')) return;   // 種別の和になった合算
       const id = b.dataset.editCount;
-      const r = await openNumpad({ title: J.itemLabel(m, id), value: s.counts[id] || 0 });
-      if (r) { s.counts[id] = Math.max(0, r.value); save(); update(); }
-    } else if ((b = t.closest('[data-edit-sum]'))) {
-      // 合算を入れる（ユニメモの合算を写すときなど）。種別に入れた分を引いた残りを種別不明にする
-      const sum = items.find(it => it.id === b.dataset.editSum);
-      const typed = sum.parts.reduce((a, id) => a + (s.counts[id] || 0), 0);
-      const unk = items.find(it => it.id === sum.unknown).short;
-      const r = await openNumpad({ title: `${sum.label}（${unk}をその差にする）`, value: J.countOf(sum, s.counts) });
+      const opt = J.optional(items.find(it => it.id === id) || {});
+      const cur = Number.isFinite(s.counts[id]) ? s.counts[id] : null;
+      const r = await openNumpad({ title: J.itemLabel(m, id), value: opt ? cur : cur ?? 0, emptyText: opt ? '—' : null });
       if (!r) return;
-      if (r.value < typed) { toast(`種別に入れた回数の和（${typed}）より小さくはできません`); return; }
-      s.counts[sum.unknown] = r.value - typed;
+      if (opt && r.empty) delete s.counts[id];
+      else s.counts[id] = Math.max(0, r.value);
       save();
       update();
     } else if ((b = t.closest('[data-edit]'))) {

@@ -71,7 +71,7 @@ function inputsHtml(r, m) {
     ${row('前任者のBIG / REG', `${fmtInt(r.prevBig)} / ${fmtInt(r.prevReg)}`)}
     ${row('現在の総G', fmtInt(r.totalG))}
     ${row('自分の消化G', fmtInt(myG))}
-    ${items.map(it => row(it.label, fmtInt(J.countOf(it, r.counts)))).join('')}
+    ${items.filter(it => !it.hidden).map(it => { const k = J.countOf(m, it, r.counts); return row(it.label, k == null ? '—' : fmtInt(k)); }).join('')}
     <p class="note">データの版 ${esc(catalog.versionLabel(r.dataVersion))}</p>
   </section>`;
 }

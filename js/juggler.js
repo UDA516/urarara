@@ -5,11 +5,13 @@
 // 足し、どの設定も同じ割合と置いて割合にする）:
 //   自分だけ     … 自分の項目（契機別のボーナス・小役）を自分の消化Gで
 //   前任者込み   … 上に、前任者の BIG・REG を前任者のG数（打ち始めG）で足す。小役は自分の消化Gのぶんだけ
+// 小役は、数字が入るまで「—」（数えていない）として入れない。入れば 0回も「引かなかった」として入れる（2026-10-08。
+// 元の HTML は押していない小役も 0回として数える。違うのは 0回のあいだだけ）
 // 前任者のぶどう逆算はここに入れない（座る前の目安。backcalc）
 //
 // A タイプ（ジャグラー以外。type = "atype"）も同じ計算で判別する。数える項目は機種ファイルに書いたもの（m.items）で、
 // 型で違うところ（要素の行・設定差の表の組・機械割）は atype.js。項目ごとに分母の G数を持てる（per）のと、
-// 示唆（1回でも数えたら設定を外す）・種別に分けて数える組（種別不明と合算）があるのは A タイプだけ
+// 示唆（1回でも数えたら設定を外す）・後から内訳が分かる組（合算と種別）があるのは A タイプだけ
 import { esc } from './ui.js';
 import * as A from './atype.js';
 
@@ -31,6 +33,9 @@ export const canBackcalc = m => isJudgeable(m) && m.type === 'juggler';
 
 /** 判別の計算に入る項目か（A タイプの G数の欄・示唆・数えるだけの項目は入らない。ジャグラーの項目は全部入る） */
 const isProb = A.isProb;
+
+/** 「—」（数えていない）を持てる項目（小役・合算）。数字が入るまで計算に入れない。ボーナスは 0回 ＝ 引かなかった */
+export const optional = A.optional;
 
 /** 列に設定差があるか */
 const varies = (m, c) => has(m, c) && m.table[c].some(v => Math.abs(v - m.table[c][0]) > 1e-9);
@@ -71,11 +76,17 @@ export function myItems(m) {
 /** 項目の名前（テンキーの見出し・記録に出す。A タイプは組の名前の付いたもの） */
 export const itemLabel = (m, id) => myItems(m).find(it => it.id === id)?.label ?? LABEL[id] ?? id;
 
-/** 種別に分けて数える組（A タイプだけ。チェリー A・B・C と種別不明など） */
+/** 後から内訳が分かる組（A タイプだけ。チェリーの合算・B・A＋C、スイカの合算・A・B など） */
 export const splits = m => (isA(m) ? A.splits(m) : []);
 
-/** 項目の回数（A タイプの合算は、種別と種別不明の和） */
-export const countOf = A.countOf;
+/** 項目の回数（A タイプの後から内訳が分かる組は組から出す。分からない種別と「—」の小役は null）。
+ *  m が無ければ（今の表に無い項目）数えた回数のまま */
+export const countOf = (m, it, counts) => (isA(m) ? A.countOf(m, it, counts) : m && optional(it) ? A.partCount(counts, it.id) : counts?.[it.id] || 0);
+
+/** 後から内訳が分かる組の、項目の入っている組と種別の回数（分からなければ null） */
+export const splitOf = (m, id) => (isA(m) ? A.splitOf(m, id) : null);
+export const splitState = A.splitState;
+export const partCount = A.partCount;
 
 /** 判別を始める前に出す注意。表から分かること（内訳が無い など）に、機種ファイルの cautions
  *  （データがそろっていない・合っていないところ）を足す。ジャグラーの型でない機種は cautions だけ */
@@ -137,9 +148,10 @@ export function excluded(m, s) {
 }
 
 /** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる。
- *  種別に分けて数える組の小役は、1つずつでなく組でまとめて（A.splitLL） */
+ *  小役は「—」（数えていない）なら入れない（0回は「引かなかった」として入れる）。
+ *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL） */
 export function posterior(m, s, withPrev) {
-  const items = myItems(m).filter(it => isProb(it) && !it.split);
+  const items = myItems(m).filter(it => isProb(it) && !it.split && !(optional(it) && A.partCount(s.counts, it.id) == null));
   const sps = splits(m);
   const myG = myGames(s);
   const out = excluded(m, s).idx;
@@ -159,6 +171,14 @@ export function posterior(m, s, withPrev) {
 }
 
 export const highShare = (m, probs) => probs.slice(highIndex(m)).reduce((a, b) => a + b, 0);
+
+/** いちばん確からしい設定（同じ確からしさは全部）。{ idx: [...], text, p }。判別の画面の上の要約に出す。
+ *  画面の割合の桁（0.1%）で同じなら同じとみる（棒の数字が同じなのに片方だけ出ないように） */
+export function topSetting(m, probs) {
+  const max = Math.max(...probs);
+  const idx = probs.map((_, i) => i).filter(i => Math.round(probs[i] * 1000) === Math.round(max * 1000));
+  return { idx, text: idx.map(i => m.settings[i]).join('・'), p: max };
+}
 
 /** 記録に残す、その時点の結果 */
 export function snapshot(m, s) {
@@ -223,10 +243,12 @@ export function measures(m, s) {
     br: ratio(st.own.big, st.own.reg),
   };
   for (const it of myItems(m)) if (isProb(it) && !(it.id in mine)) mine[it.id] = den(gamesOf(it, s), s.counts?.[it.id]);
-  // 種別に分けた組の合算は、合算が分かるとき（種別不明が1回以上か、全部の種別が1回以上）だけ
+  // 後から内訳が分かる組: 合算はいつも、種別は分かっているときだけ、まとめた行は見られる種別が全部分かったときだけ
   for (const sp of splits(m)) {
-    const k = A.splitState(sp, s.counts);
-    mine[sp.sum.id] = k.totalKnown ? den(st.myG, k.total) : null;
+    for (const it of [sp.sum, ...sp.parts, ...(sp.rest ? [sp.rest] : [])]) {
+      const k = countOf(m, it, s.counts);
+      mine[it.id] = k == null ? null : den(st.myG, k);
+    }
   }
   const all = {
     big: den(st.totalG, st.all.big), reg: den(st.totalG, st.all.reg), combo: den(st.totalG, st.all.big + st.all.reg),

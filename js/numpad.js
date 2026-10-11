@@ -32,7 +32,8 @@ function build() {
 
 function paint() {
   const v = state.digits || '0';
-  overlay.querySelector('.np-display').textContent = (state.neg && state.digits ? '−' : '') + Number(v).toLocaleString('ja-JP');
+  overlay.querySelector('.np-display').textContent = state.digits === '' && state.emptyText != null ? state.emptyText
+    : (state.neg && state.digits ? '−' : '') + Number(v).toLocaleString('ja-JP');
 }
 
 function finish(result) {
@@ -63,12 +64,15 @@ function onClick(e) {
 
 /**
  * 開いて、決定で { value, empty, next } を、キャンセルで null を返す。
- * empty は何も打たずに決定したとき（総Gの確認に使う）
+ * empty は何も打たずに決定したとき（総Gの確認に使う）。
+ * emptyText を渡すと、何も入っていないときにそれを出す（小役の「—」＝数えていない。C で消して決定すると empty）。
+ * そのときは 0 も「0」として入った状態で開く（value が null なら空で開く）
  */
-export function openNumpad({ title, value = 0, negative = false, hasNext = false, max = 6 }) {
+export function openNumpad({ title, value = 0, negative = false, hasNext = false, max = 6, emptyText = null }) {
   if (!overlay) build();
   return new Promise(resolve => {
-    state = { digits: value ? String(Math.abs(value)) : '', neg: value < 0, max, resolve };
+    const digits = value ? String(Math.abs(value)) : emptyText != null && value === 0 ? '0' : '';
+    state = { digits, neg: value < 0, max, emptyText, resolve };
     overlay.querySelector('.np-title').textContent = title;
     overlay.querySelector('.np-row').classList.toggle('has-sign', negative);
     overlay.querySelector('.np-sign').hidden = !negative;
