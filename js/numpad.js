@@ -83,6 +83,11 @@ export function openNumpad({ title, value = 0, negative = false, hasNext = false
   });
 }
 
+/** 開いていれば、キャンセルと同じに閉じる（画面を移ったとき） */
+export function closeNumpad() {
+  if (state) finish(null);
+}
+
 /**
  * 欄を順に入れる。fields は { title, get(), set(value, empty), negative } の並び。
  * 「次へ」を押すと次の欄のテンキーが続けて開く

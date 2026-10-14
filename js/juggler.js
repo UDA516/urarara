@@ -11,7 +11,9 @@
 //
 // A タイプ（ジャグラー以外。type = "atype"）も同じ計算で判別する。数える項目は機種ファイルに書いたもの（m.items）で、
 // 型で違うところ（要素の行・設定差の表の組・機械割）は atype.js。項目ごとに分母の G数を持てる（per）のと、
-// 示唆（1回でも数えたら設定を外す）・後から内訳が分かる組（合算と種別）があるのは A タイプだけ
+// 示唆（1回でも数えたら設定を外す）・後から内訳が分かる組（合算と種別）があるのは A タイプだけ。
+// AT機（type = "at"）は A タイプと同じ通り道で、BIG・REG の場所に ST・CZ などを数える（名前は [names]）。
+// 回数を計算に入れないボーナスの組（ref。AT機の CZ）は、内訳の割合だけを入れ、前任者のその回数も入れない
 import { esc } from './ui.js';
 import * as A from './atype.js';
 
@@ -22,7 +24,13 @@ export const LABEL = {
 
 const has = (m, c) => Array.isArray(m.table?.[c]);
 
-const isA = m => m?.type === 'atype';
+/** 数える項目を機種ファイルに書く型（A タイプ・AT機） */
+const isA = m => m?.type === 'atype' || m?.type === 'at';
+
+/** BIG・REG の場所に数えるものの名前と G数の呼び名（[names]。ジャグラーは BIG・REG のまま）・合算を出すか・先頭の組の名前 */
+export const names = A.names;
+export const hasCombo = A.hasCombo;
+export const mainTitle = A.mainTitle;
 
 export function isJudgeable(m) {
   return !!m && (m.type === 'juggler' || isA(m)) && has(m, 'big') && has(m, 'reg');
@@ -110,6 +118,12 @@ export const highLabel = m => m.settings[highIndex(m)];
 
 export const myGames = s => Math.max(0, (s.totalG || 0) - (s.startG || 0));
 
+/** 自分の総G（[names] の all がある機種。通常G のほかに入れる、CZ・ST・ボーナス中も入れた G数。2026-10-14） */
+export const myAllGames = s => Math.max(0, (s.totalAllG || 0) - (s.startAllG || 0));
+
+/** 自分の AT中などの G数（自分の総G − 自分の通常G）。AT中も数える小役（A タイプの of）の分母 */
+export const myAtGames = s => Math.max(0, myAllGames(s) - myGames(s));
+
 /** 自分・前任者込みの回数とG数 */
 export function stats(m, s) {
   const own = { big: 0, reg: 0 };
@@ -125,26 +139,38 @@ export function stats(m, s) {
 function binomLL(k, n, p) {
   if (!(n > 0)) return 0;
   k = Math.min(Math.max(k || 0, 0), n);
+  if (!(p > 0)) return k > 0 ? -Infinity : 0;   // その設定では出ない項目（A タイプの flags 0）
   return k * Math.log(p) + (n - k) * Math.log1p(-p);
 }
 
+/** 表の 1/N を確率に。null（その設定では出ない。A タイプのボーナスの flags 0）は 0 */
+const prob = v => (v > 0 ? 1 / v : 0);
+
 function normalize(lls) {
   const max = Math.max(...lls);
+  if (max === -Infinity) return lls.map(() => 1 / lls.length);   // どの設定もありえない読み（ふつうは起きない）
   const w = lls.map(v => Math.exp(v - max));
   const sum = w.reduce((a, b) => a + b, 0);
   return w.map(x => x / sum);
 }
 
-/** 項目の分母の G数。ふつうは自分の消化G、per のある項目（A タイプ）はその G数の欄 */
-const gamesOf = (it, s) => (it.per ? s.counts?.[it.per] || 0 : myGames(s));
+/** 項目の分母の G数。ふつうは自分の消化G、per のある項目（A タイプ）はその G数の欄、
+ *  AT中の欄（of。通常時と AT中で分けて数える小役）は 自分の総G − 自分の通常G */
+export const gamesOf = (it, s) => (it.of ? myAtGames(s) : it.per ? s.counts?.[it.per] || 0 : myGames(s));
 
-/** 示唆で外す設定（添字の Set）と、外した理由の項目。全部の設定が外れるときは外さない */
+/** その設定では出ない項目の、設定の添字（A タイプのボーナスの flags 0。ジャグラーには無い） */
+export const never = (m, it) => (isA(m) ? A.never(m, it) : []);
+
+/** 示唆で外す設定（添字の Set）と、外した理由の項目。全部の設定が外れるときは外さない。
+ *  その設定では出ないボーナス（never）を1回でも数えたときも、その設定を外す */
 export function excluded(m, s) {
   const idx = new Set();
   const by = [];
   for (const it of myItems(m)) {
-    if (it.group !== 'hint' || !(s.counts?.[it.id] > 0)) continue;
-    it.excludes.forEach(i => idx.add(i));
+    if (!(s.counts?.[it.id] > 0)) continue;
+    const ex = it.group === 'hint' ? it.excludes : it.group === 'bonus' ? never(m, it) : [];
+    if (!ex.length) continue;
+    ex.forEach(i => idx.add(i));
     by.push(it);
   }
   return idx.size < m.settings.length ? { idx, by } : { idx: new Set(), by: [] };
@@ -152,9 +178,13 @@ export function excluded(m, s) {
 
 /** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる。
  *  小役は「—」（数えていない）なら入れない（0回は「引かなかった」として入れる）。
- *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL） */
+ *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL）。
+ *  回数を計算に入れないボーナスの組（ref）は、内訳の割合だけ（A.refLL）。前任者のその回数も入れない */
 export function posterior(m, s, withPrev) {
-  const items = myItems(m).filter(it => isProb(it) && !it.split && !(optional(it) && A.partCount(s.counts, it.id) == null));
+  const items = myItems(m).filter(it => isProb(it) && !it.split && !it.ref && !(optional(it) && A.partCount(s.counts, it.id) == null));
+  const refs = isA(m) ? A.refGroups(m) : [];
+  const prevBig = !(isA(m) && A.refKind(m, 'big'));
+  const prevReg = !(isA(m) && A.refKind(m, 'reg'));
   const sps = splits(m);
   const myG = myGames(s);
   const out = excluded(m, s).idx;
@@ -163,11 +193,13 @@ export function posterior(m, s, withPrev) {
     let ll = 0;
     for (const it of items) {
       const g = gamesOf(it, s);
-      if (g > 0) ll += binomLL(s.counts?.[it.id], g, 1 / colValues(m, it.id)[i]);
+      if (g > 0) ll += binomLL(s.counts?.[it.id], g, prob(colValues(m, it.id)[i]));
     }
     if (myG > 0) for (const sp of sps) ll += A.splitLL(m, sp, s.counts, myG, i);
+    for (const g of refs) ll += A.refLL(m, g, s.counts, i);
     if (withPrev && s.startG > 0) {
-      ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]) + binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
+      if (prevBig) ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]);
+      if (prevReg) ll += binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
     }
     return ll;
   }));
@@ -221,8 +253,9 @@ export function nearest(m, c, value) {
     if (value < arr[n - 1] - 10) return { idx: [n - 1], text: `${m.settings[n - 1]}以上` };
     if (value > arr[0] + 30) return { idx: [0], text: `${m.settings[0]}以下` };
   }
-  const min = Math.min(...arr.map(v => Math.abs(value - v)));
-  const idx = arr.map((_, i) => i).filter(i => Math.abs(Math.abs(value - arr[i]) - min) < 1e-3);
+  const dist = arr.map(v => (v > 0 ? Math.abs(value - v) : Infinity));   // その設定では出ないもの（null）は近くない
+  const min = Math.min(...dist);
+  const idx = arr.map((_, i) => i).filter(i => Math.abs(dist[i] - min) < 1e-3);
   return { idx, text: idx.map(i => m.settings[i]).join('・') };
 }
 
@@ -246,6 +279,12 @@ export function measures(m, s) {
     br: ratio(st.own.big, st.own.reg),
   };
   for (const it of myItems(m)) if (isProb(it) && !(it.id in mine)) mine[it.id] = den(gamesOf(it, s), s.counts?.[it.id]);
+  // 通常時と AT中で分けて数える小役（at）は、表に合わせた値で出す。数えている（「—」でない）ほうの G数と回数を足す
+  // （分母が 0 のほうは足さない。総G を入れていないのに AT中を数えたときなど）
+  for (const it of myItems(m).filter(x => x.at)) {
+    const used = [it, myItems(m).find(x => x.id === it.at)].filter(x => x && A.partCount(s.counts, x.id) != null && gamesOf(x, s) > 0);
+    mine[it.id] = den(used.reduce((a, x) => a + gamesOf(x, s), 0), used.reduce((a, x) => a + s.counts[x.id], 0));
+  }
   // 後から内訳が分かる組: 合算はいつも、種別は分かっているときだけ、まとめた行は見られる種別が全部分かったときだけ
   for (const sp of splits(m)) {
     for (const it of [sp.sum, ...sp.parts, ...(sp.rest ? [sp.rest] : [])]) {

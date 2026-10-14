@@ -6,7 +6,7 @@ import { esc, md } from '../ui.js';
 import { navigate } from '../nav.js';
 import { startSession, cautionCard } from './judge.js';
 
-const TYPE_LABEL = { juggler: 'ジャグラー', atype: 'Aタイプ', memo: 'メモ' };
+const TYPE_LABEL = { juggler: 'ジャグラー', atype: 'Aタイプ', at: 'AT機', memo: 'メモ' };
 let query = '';
 let typeFilter = '';
 

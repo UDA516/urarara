@@ -2,10 +2,23 @@
 // build.py が items（数える項目の並び）と table（設定ごとの 1/N。big・reg・combo は内訳から出したもの）にする。
 // 判別の計算は juggler.js と同じもの（項目ごとの二項分布の対数尤度）を使い、ここは型で違うところだけを持つ:
 // 要素の行・設定差の表の組・後から内訳が分かる組（合算と種別）・機械割（ボーナス1回の平均の投入と払い出しから出す）。逆算はしない
+// AT機（type = "at"。2026-10-13〜）もここで扱う。BIG・REG の場所に数えるもの（ST・CZ など）の名前は機種ファイルの [names]。
+// 足しても意味が無いので、合算・BR比率は出さない
 import { esc } from './ui.js';
 
+/** BIG・REG の場所に数えるものの名前と、G数の呼び名（機種ファイルの [names]。無ければ BIG・REG、games は null）。
+ *  all は通常G のほかに入れる総G の呼び名（AT中も数える項目の分母。無ければ null） */
+export const names = m => ({ big: m?.names?.big || 'BIG', reg: m?.names?.reg || 'REG', games: m?.names?.games || null, all: m?.names?.all || null });
+
+/** 合算・BR比率を出す型か（AT機は出さない） */
+export const hasCombo = m => m?.type !== 'at';
+
+/** 合算・BIG・REG をまとめた組の名前（要素ごと・設定差の表の先頭の組。判別の画面の契機の内訳が無いボーナスの組） */
+export const mainTitle = m => (hasCombo(m) ? 'ボーナス' : `${names(m).big}・${names(m).reg}`);
+
 /** items の group:
- *   bonus（契機別のボーナス。kind で BIG・REG に足す）・role（小役。per があればその G数の欄で数える）は確率を持ち、計算に入る。
+ *   bonus（契機別のボーナス。kind で BIG・REG に足す）・role（小役。per があればその G数の欄で、of（AT中の欄）なら
+ *   自分の総G − 自分の通常G で数える）は確率を持ち、計算に入る。
  *   games（G数の欄）・hint（示唆。1回でも数えたら excludes の設定を外す）・tally（数えるだけ）は入らない。
  *   sum（合算）・rest（見えない種別をまとめた行）は、後から内訳が分かる組のもの。その組の小役（split を持つ。
  *   hidden は単独では見られない種別）と合わせて計算する（splitLL） */
@@ -21,10 +34,53 @@ const hasCol = it => isProb(it) || it.group === 'sum' || it.group === 'rest';
 
 export const items = m => m.items || [];
 
-const varies = (m, c) => Array.isArray(m.table?.[c]) && m.table[c].some(v => Math.abs(v - m.table[c][0]) > 1e-9);
+const varies = (m, c) => Array.isArray(m.table?.[c]) && m.table[c].some(v => (v == null) !== (m.table[c][0] == null) || Math.abs(v - m.table[c][0]) > 1e-9);
 
-/** 項目の組の名前（要素ごとの表・設定差の表）。ボーナスは「白7BBの契機」のように */
-const groupTitle = it => (it.group === 'bonus' ? `${it.sec}の契機` : it.sec);
+/** 通常時と AT中で分けて数える小役（2026-10-14。AT中も見分けられる共通ベルなど）。元の項目は at に AT中の欄の id を、AT中の欄は of に
+ *  元の id を持つ。分母は 通常時 ＝ 自分の通常G、AT中 ＝ 自分の総G − 自分の通常G。要素ごと・設定差の表には合わせて1つ
+ *  （元の項目の列に「通常時＋AT中」として）出し、AT中の欄は出さない */
+const colLabel = (m, it) => (it.at ? `${it.short}＋${items(m).find(x => x.id === it.at)?.short ?? ''}` : it.short);
+
+/** 項目の組の名前（要素ごとの表・設定差の表）。ボーナスは「白7BBの契機」のように。回数を計算に入れない組（ref）は
+ *  「CZの内訳」のように（中身は契機でなく種類のことが多く、計算に入るのも内訳の割合だけのため） */
+const groupTitle = it => (it.group === 'bonus' ? `${it.sec}の${it.ref ? '内訳' : '契機'}` : it.sec);
+
+// ---------------------------------------------------------------- 回数を計算に入れないボーナスの組（ref）
+// AT機の CZ は、ST の多くが CZ を通るので、CZ と ST を別々に計算に入れると同じことを二重に数える（2026-10-13）。
+// なので回数（確率）は計算に入れず、前任者のその回数も入れない（近い設定だけ出す）。項目が2つ以上なら、
+// 内訳の割合（CZ のうちの幼少期CZ など）だけを入れる。回数で割った割合は、ST とは重ならない
+
+/** kind（big・reg）の組が、回数を計算に入れない組か（前任者のその回数も入れない） */
+export const refKind = (m, kind) => {
+  const list = items(m).filter(it => it.group === 'bonus' && it.kind === kind);
+  return list.length > 0 && list.every(it => it.ref);
+};
+
+/** 回数を計算に入れない組のうち、項目が2つ以上のもの（内訳の割合を計算に入れる）。{ sec, parts } の並び */
+export function refGroups(m) {
+  const out = [];
+  for (const it of items(m).filter(x => x.group === 'bonus' && x.ref)) {
+    let g = out.find(x => x.sec === it.sec);
+    if (!g) out.push(g = { sec: it.sec, parts: [] });
+    g.parts.push(it);
+  }
+  return out.filter(g => g.parts.length > 1);
+}
+
+/** 内訳の割合の対数尤度（設定 i）: Σ 項目の回数 · log（その項目の p ÷ 組の p の和）。組の回数がいくつでも、割合だけを見る */
+export function refLL(m, g, counts, i) {
+  // その設定では出ない項目（null）は p を 0 に（数えていればその設定は excluded で外れる）
+  const p = g.parts.map(it => (m.table[it.id][i] == null ? 0 : 1 / m.table[it.id][i]));
+  const all = p.reduce((a, b) => a + b, 0);
+  return g.parts.reduce((ll, it, j) => {
+    const k = counts?.[it.id] || 0;
+    return k > 0 && p[j] > 0 ? ll + k * Math.log(p[j] / all) : ll;
+  }, 0);
+}
+
+/** その設定では出ない項目の、設定の添字（表の値が null。ボーナスの flags に 0 を書いたところ。2026-10-13。
+ *  高設定でしか出ない契機があるため）。判別では 1回でも数えたらその設定を外す（juggler.js の excluded）。ジャグラーの表には無い */
+export const never = (m, it) => (m.table?.[it.id] || []).flatMap((v, i) => (v == null ? [i] : []));
 
 /** 契機の内訳が無いボーナス（ボーナスの組に項目が1つだけ）。その項目は BIG・REG そのものなので、要素ごと・設定差の表の
  *  契機の行・列には出さない（ボーナスの BIG・REG と同じものが二重に出るため）。判別の画面では「ボーナス」の組にまとめる */
@@ -100,35 +156,44 @@ export function splitLL(m, sp, counts, games, i) {
 /** 要素ごとの表の行。合算・BIG・REG と、設定差のある項目（無いものはどの設定にも同じ近さで、出しても意味が無い）。
  *  sec は組の名前（組ごとにたためる表にする）、label は組の中での名前 */
 export function elementRows(m) {
+  const N = names(m), main = mainTitle(m);
   return [
-    { c: 'combo', label: 'ボーナス合算', both: true, sec: 'ボーナス' },
-    { c: 'big', label: 'BIG', both: true, sec: 'ボーナス' },
-    { c: 'reg', label: 'REG', both: true, sec: 'ボーナス' },
-    ...items(m).filter(it => hasCol(it) && !it.hidden && !plainBonus(m, it) && varies(m, it.id))
-      .map(it => ({ c: it.id, label: it.short, both: false, sec: groupTitle(it) })),
+    ...(hasCombo(m) ? [{ c: 'combo', label: 'ボーナス合算', both: true, sec: main }] : []),
+    { c: 'big', label: N.big, both: true, sec: main },
+    { c: 'reg', label: N.reg, both: true, sec: main },
+    ...items(m).filter(it => hasCol(it) && !it.hidden && !it.of && !plainBonus(m, it) && varies(m, it.id))
+      .map(it => ({ c: it.id, label: colLabel(m, it), both: false, sec: groupTitle(it), ...(it.pct ? { pct: true } : {}) })),
   ];
 }
 
-/** 1/N の N。内訳の確率は分母が大きいので、1000 からは整数で */
-const fmtN = v => (v < 10 ? v.toFixed(2) : v < 1000 ? v.toFixed(1) : v.toFixed(0));
+/** 1/N の N。内訳の確率は分母が大きいので、1000 からは整数で。その設定では出ないもの（null）は「—」 */
+const fmtN = v => (v == null ? '—' : v < 10 ? v.toFixed(2) : v < 1000 ? v.toFixed(1) : v.toFixed(0));
+/** 割合（%）で書いた項目（pct。400G到達時の当選率のように資料が % のもの）は % で */
+const fmtP = v => (v == null ? '—' : `${(100 / v).toFixed(1)}%`);
 
 /** 設定差の表を、ボーナス・契機（ボーナスの種類ごと）・小役などの組に分ける。label は HTML（中身は esc 済み）。
  *  設定差の無い列は表には出すが、近い設定の塗りはしない（noMark） */
 export function specGroups(m) {
   const head = [];
   if (Array.isArray(m.table.payout)) head.push({ c: 'payout', label: '出玉率', text: String });
+  if (hasCombo(m)) {
+    head.push(
+      { c: 'br', label: 'BR比率', text: v => `${v.toFixed(2)} : 1` },
+      { c: 'combo', label: 'ボーナス<br>合算', text: v => v.toFixed(1) },
+    );
+  }
+  // 名前を付け替えた機種（[names]）は「ST<br>確率」のように
+  const lab = (k, def) => (m.names?.[k] ? `${esc(m.names[k])}<br>確率` : def);
   head.push(
-    { c: 'br', label: 'BR比率', text: v => `${v.toFixed(2)} : 1` },
-    { c: 'combo', label: 'ボーナス<br>合算', text: v => v.toFixed(1) },
-    { c: 'big', label: 'BB確率', text: v => v.toFixed(1) },
-    { c: 'reg', label: 'RB確率', text: v => v.toFixed(1) },
+    { c: 'big', label: lab('big', 'BB確率'), text: v => v.toFixed(1) },
+    { c: 'reg', label: lab('reg', 'RB確率'), text: v => v.toFixed(1) },
   );
-  const groups = [{ title: 'ボーナス', cols: head }];
-  for (const it of items(m).filter(it => hasCol(it) && !plainBonus(m, it))) {
+  const groups = [{ title: mainTitle(m), cols: head }];
+  for (const it of items(m).filter(it => hasCol(it) && !it.of && !plainBonus(m, it))) {
     const title = groupTitle(it);
     let g = groups.find(x => x.title === title);
     if (!g) groups.push(g = { title, cols: [] });
-    g.cols.push({ c: it.id, label: esc(it.short), text: fmtN, noMark: !varies(m, it.id) });
+    g.cols.push({ c: it.id, label: esc(colLabel(m, it)), text: it.pct ? fmtP : fmtN, noMark: !varies(m, it.id) });
   }
   return groups;
 }
@@ -173,6 +238,11 @@ export function payoutHtml(m) {
   const r = payoutRates(m);
   const pub = Array.isArray(m.table.payout) ? m.table.payout : null;
   if (!r && !pub) return '';
+  // AT機は小役とボーナスから機械割を出す作りが無いので、公表値だけ（計算の列は全部「—」になるため）
+  if (!r && !hasCombo(m)) {
+    return `<table class="tbl"><thead><tr><th>設定</th><th>公表値</th></tr></thead><tbody>${
+      m.settings.map((s, i) => `<tr><td>${esc(s)}</td><td>${esc(pub[i])}</td></tr>`).join('')}</tbody></table>`;
+  }
   const pm = m.payoutModel || {};
   const pct = v => (v == null ? '—' : `${v.toFixed(1)}%`);
   const hyps = r?.hyps || [];

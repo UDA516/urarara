@@ -1,4 +1,5 @@
-// 画面の小さな道具: 文字の書き方・お知らせ・下から出す枠・コピー・確認・たためる組の開け閉め・メモの表示
+// 画面の小さな道具: 文字の書き方・お知らせ・下から出す枠・コピー・確認・たためる組の開け閉め・
+// 横に滑らせるとボタンが出る行・メモの表示
 
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -40,6 +41,8 @@ export function toast(message, { action, onAction, ms = 3500 } = {}) {
   setTimeout(remove, ms);
 }
 
+const openSheets = new Set();   // 開いている枠の close
+
 /** 下から出す枠。外側を押すと close(null) で閉じる */
 export function openSheet(html, { onClose } = {}) {
   const overlay = document.createElement('div');
@@ -51,12 +54,20 @@ export function openSheet(html, { onClose } = {}) {
   const close = value => {
     if (closed) return;
     closed = true;
+    openSheets.delete(close);
     overlay.remove();
     if (!document.querySelector('.overlay.open')) document.body.classList.remove('no-scroll');
     onClose?.(value);
   };
+  openSheets.add(close);
   overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
   return { el: overlay.querySelector('.sheet'), close };
+}
+
+/** 開いている枠を全部、やめた扱い（close(null)）で閉じる。画面を移ったとき（Android の戻るなど）に、
+ *  前の画面の枠が新しい画面の上に残らないように */
+export function closeSheets() {
+  [...openSheets].forEach(close => close(null));
 }
 
 /** クリップボードへ。使えない端末では選択した状態で見せ、「コピーしました」を押したら true */
@@ -108,6 +119,103 @@ export function rememberFolds(root, scope) {
     if (d.open) set.delete(d.dataset.fold); else set.add(d.dataset.fold);
     all[scope] = [...set];
     try { localStorage.setItem(FOLDS, JSON.stringify(all)); } catch { /* 覚えられなくても動く */ }
+  }, true);
+}
+
+/** 横に滑らせるとボタンが出る行（スマホのよくある操作）。行の形は
+ *    <div class="swipe" data-id="…"><div class="swipe-acts"><button class="swipe-act" data-act="…">…</button>…</div>
+ *    <a class="swipe-face" draggable="false" …>…</a></div>
+ *  左へ滑らせると右のボタンが出る。開くのは1行だけで、ほかを触ると閉じる（そのときの1回は行を開かない）。
+ *  縦の動きはスクロールに任せる（.swipe-face は touch-action: pan-y）。ボタンを押すと閉じて onAction(act, id) */
+export function swipeRows(root, onAction) {
+  let open = null;        // 開いている行
+  let drag = null;        // 指を置いているあいだ
+  let eatClick = false;   // 滑らせた・閉じるために触ったあとのクリックは、行のリンクを開かない
+  const face = sw => sw.querySelector('.swipe-face');
+  const width = sw => sw.querySelector('.swipe-acts').offsetWidth;
+  const moveTo = (sw, x) => { face(sw).style.transform = x ? `translateX(${x}px)` : ''; };
+  const show = sw => {
+    if (open && open !== sw) hide(open);
+    open = sw;
+    sw.classList.add('is-on');
+    moveTo(sw, -width(sw));
+  };
+  const hide = sw => {
+    if (open === sw) open = null;
+    moveTo(sw, 0);
+    // 戻りきってからボタンを隠す（閉じているあいだは、角の丸みから覗かないように隠しておく）
+    setTimeout(() => { if (open !== sw && drag?.sw !== sw) sw.classList.remove('is-on'); }, 250);
+  };
+
+  root.addEventListener('pointerdown', e => {
+    eatClick = false;
+    if (!e.isPrimary || e.button !== 0) return;   // 2本目の指・右クリックは見ない
+    drag = null;
+    if (e.target.closest('.swipe-acts')) return;   // ボタンはそのまま押させる
+    const f = e.target.closest('.swipe-face');
+    const sw = f?.closest('.swipe');
+    const wasOpen = !!sw && open === sw;
+    const closing = !!open && !wasOpen;
+    if (closing) hide(open);
+    if (!sw) return;
+    const base = wasOpen ? -width(sw) : 0;
+    drag = { sw, id: e.pointerId, x0: e.clientX, y0: e.clientY, max: width(sw), base, x: base, t: e.timeStamp, v: 0, wasOpen, closing, horizontal: false, vertical: false };
+  });
+
+  root.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id || drag.vertical) return;
+    const dx = e.clientX - drag.x0;
+    const dy = e.clientY - drag.y0;
+    if (!drag.horizontal) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      if (Math.abs(dy) >= Math.abs(dx)) { drag.vertical = true; return; }   // 縦はスクロール
+      drag.horizontal = true;
+      try { face(drag.sw).setPointerCapture(e.pointerId); } catch { /* 捕まえられなくても動く */ }
+      drag.sw.classList.add('is-on', 'is-drag');
+    }
+    let x = drag.base + dx;
+    // 端を越えたら重くする
+    if (x > 0) x /= 4;
+    else if (x < -drag.max) x = -drag.max + (x + drag.max) / 4;
+    const dt = e.timeStamp - drag.t;
+    if (dt > 0) drag.v = drag.v / 2 + (x - drag.x) / dt / 2;
+    drag.x = x;
+    drag.t = e.timeStamp;
+    moveTo(drag.sw, x);
+  });
+
+  const end = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    d.sw.classList.remove('is-drag');
+    if (d.horizontal) {
+      eatClick = true;
+      // 速く払ったら向きで、ゆっくりなら半分を越えたかで決める（指を止めてから離したときは速さを見ない）
+      const v = e.timeStamp - d.t > 100 ? 0 : d.v;
+      if (v < -0.4 || (v <= 0.4 && d.x < -d.max / 2)) show(d.sw); else hide(d.sw);
+    } else if (d.wasOpen && !d.vertical && e.type === 'pointerup') {
+      hide(d.sw);   // 開いている行を触ったら閉じるだけ
+      eatClick = true;
+    } else if (d.closing) {
+      eatClick = true;
+    }
+  };
+  root.addEventListener('pointerup', end);
+  root.addEventListener('pointercancel', end);
+
+  root.addEventListener('click', e => {
+    if (eatClick) {
+      eatClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    const b = e.target.closest('.swipe-act');
+    if (!b) return;
+    const sw = b.closest('.swipe');
+    hide(sw);
+    onAction(b.dataset.act, sw.dataset.id);
   }, true);
 }
 

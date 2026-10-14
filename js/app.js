@@ -1,7 +1,8 @@
 // 起動・ロック・画面の切り替え（#/タブ/…）・更新の確認。
 // 画面の状態は location.hash が正。タブを押す・戻る → hashchange → route()
 import * as catalog from './catalog.js';
-import { esc, toast } from './ui.js';
+import { esc, toast, closeSheets } from './ui.js';
+import { closeNumpad } from './numpad.js';
 import { setReroute } from './nav.js';
 import * as machinesView from './views/machines.js';
 import * as backcalcView from './views/backcalc.js';
@@ -69,7 +70,8 @@ async function route() {
   }
 }
 setReroute(route);
-window.addEventListener('hashchange', route);
+// 画面を移ったら、前の画面で開いていた枠・テンキーは閉じる（戻るで移ったときに残らないように）
+window.addEventListener('hashchange', () => { closeSheets(); closeNumpad(); route(); });
 
 // ---------------------------------------------------------------- ロック
 

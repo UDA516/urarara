@@ -44,10 +44,23 @@ export async function boot() {
   return 'locked';
 }
 
-/** 違うパスワードなら例外（OperationError） */
+/** 違うパスワードなら例外（OperationError）。手元のデータで開けなければ、新しいデータでも試す
+ *  （ロックしているあいだに PC でパスワードが変わったとき。更新の確認は開いてからなので、
+ *  手元の古いデータのままだと、新しいパスワードが「違います」になってしまう） */
 export async function unlock(password) {
-  const key = await deriveKey(password, envelope);
-  payload = await decryptEnvelope(key, envelope);
+  let key, data;
+  try {
+    key = await deriveKey(password, envelope);
+    data = await decryptEnvelope(key, envelope);
+  } catch (e) {
+    const next = await fetchJson('data.enc').catch(() => null);
+    if (!next || next.salt === envelope.salt) throw e;   // 電波が無い・パスワードは変わっていない
+    key = await deriveKey(password, next);
+    data = await decryptEnvelope(key, next);
+    envelope = next;
+    await kvSet('envelope', next);
+  }
+  payload = data;
   aesKey = key;
   try {
     await kvSet('key', { key, salt: envelope.salt });
