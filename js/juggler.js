@@ -158,6 +158,11 @@ function normalize(lls) {
  *  AT中の欄（of。通常時と AT中で分けて数える小役）は 自分の総G − 自分の通常G */
 export const gamesOf = (it, s) => (it.of ? myAtGames(s) : it.per ? s.counts?.[it.per] || 0 : myGames(s));
 
+/** 公表されていない値の項目（機種ファイルの組の unofficial）を、この判別で計算に入れないか。判別の画面の切り替えで
+ *  s.unofficialOff が true なら入れない（示唆なら設定を外さない）。入れた場合と入れない場合を見比べるため（2026-10-15） */
+export const unofficialOff = (s, it) => !!(it.unofficial && s?.unofficialOff);
+export const hasUnofficial = m => myItems(m).some(it => it.unofficial);
+
 /** その設定では出ない項目の、設定の添字（A タイプのボーナスの flags 0。ジャグラーには無い） */
 export const never = (m, it) => (isA(m) ? A.never(m, it) : []);
 
@@ -167,7 +172,7 @@ export function excluded(m, s) {
   const idx = new Set();
   const by = [];
   for (const it of myItems(m)) {
-    if (!(s.counts?.[it.id] > 0)) continue;
+    if (!(s.counts?.[it.id] > 0) || unofficialOff(s, it)) continue;
     const ex = it.group === 'hint' ? it.excludes : it.group === 'bonus' ? never(m, it) : [];
     if (!ex.length) continue;
     ex.forEach(i => idx.add(i));
@@ -181,7 +186,8 @@ export function excluded(m, s) {
  *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL）。
  *  回数を計算に入れないボーナスの組（ref）は、内訳の割合だけ（A.refLL）。前任者のその回数も入れない */
 export function posterior(m, s, withPrev) {
-  const items = myItems(m).filter(it => isProb(it) && !it.split && !it.ref && !(optional(it) && A.partCount(s.counts, it.id) == null));
+  const items = myItems(m).filter(it => isProb(it) && !it.split && !it.ref && !unofficialOff(s, it)
+    && !(optional(it) && A.partCount(s.counts, it.id) == null));
   const refs = isA(m) ? A.refGroups(m) : [];
   const prevBig = !(isA(m) && A.refKind(m, 'big'));
   const prevReg = !(isA(m) && A.refKind(m, 'reg'));

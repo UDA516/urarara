@@ -4,7 +4,8 @@
 import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
 import { kvGet, kvSet, kvDel, recGet, recPut, recAll } from '../db.js';
-import { esc, fmtInt, fmtDen, fmtPct, fmtDate, fmtTime, toast, openSheet, confirmDialog, copyText, rememberFolds } from '../ui.js';
+import { esc, fmtInt, fmtDen, fmtPct, fmtDate, fmtTime, toast, openSheet, confirmDialog, copyText, rememberFolds, imgGridHtml } from '../ui.js';
+import { showThumbs, bindViewer } from '../images.js';
 import { openNumpad, editChain } from '../numpad.js';
 import { matches } from '../search.js';
 import { navigate } from '../nav.js';
@@ -440,8 +441,15 @@ function renderSession(root, s, ctx) {
     if (!counterIds.has(id) || !(s.counts[id] > 0)) return;
     for (const it of rolesOf(id)) if (!Number.isFinite(s.counts[it.id])) s.counts[it.id] = 0;
   };
-  const countNote = it => `<p class="note">右の％は「${esc(it.short)}」に対する割合です。「${esc(it.short)}」を＋で数えると、`
-    + `${rolesOf(it.id).map(x => `「${esc(x.short)}」`).join('・')}も 0回から数え始めます（「—」でなくなる）</p>`;
+  // 示唆・数えるだけの項目しかない組（ボイスなど）は、「—」から数え始める項目が無いので後ろの文を出さない
+  const countNote = it => {
+    const roles = rolesOf(it.id);
+    return `<p class="note">右の％は「${esc(it.short)}」に対する割合です${roles.length ? `。「${esc(it.short)}」を＋で数えると、`
+      + `${roles.map(x => `「${esc(x.short)}」`).join('・')}も 0回から数え始めます（「—」でなくなる）` : ''}</p>`;
+  };
+  // 分母の欄のある組の示唆・数えるだけの項目は、その分母に対する割合を出す（2026-10-15。ボイスの割合などを、
+  // 設定ごとの値が無いので計算には入れず、メモの実戦値と見比べる）
+  const counterOf = it => items.find(x => x.sec === it.sec && x.group === 'games' && x.counter);
   // 通常時と AT中で分けて数える小役（2026-10-14。AT中も見分けられる共通ベルなど）。AT中の分母は 自分の総G − 自分の通常G
   const atNote = it => {
     const base = items.find(x => x.id === it.of);
@@ -467,9 +475,17 @@ function renderSession(root, s, ctx) {
   // 縦に長いので、見出しを押してたためる（ユーザーの指示 2026-10-08。A タイプで始め、ジャグラーも同じに）。
   // 開け閉めは機種ごとに端末に覚える。ボーナスの組は、たたんでも回数が分かるように見出しに合計を出す
   const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}" open>${head}${body}</details>`;
+  // 組に添えた画像（終了画面など。機種ファイルの [[count]] の images）。見出しのすぐ下に「画像（N枚）」を出し、
+  // 押すと小さく並べる（毎回たたんだ状態から。開いたときに中身を入れる）。並べたものを押すと全画面で見る
+  const imagesHtml = sec => {
+    const list = [...new Set(sec.items.map(it => it.sec))].flatMap(t => m.groupImages?.[t] || []);
+    return list.length ? `<details class="img-fold"><summary>画像（${list.length}枚）</summary>${imgGridHtml(list)}</details>` : '';
+  };
   const sectionHtml = (sec, k) => {
     const per = sec.items.find(it => PER[it.per])?.per;
-    const body = sec.items.map(counter).join('')
+    const unof = sec.items.some(it => it.unofficial);
+    const body = imagesHtml(sec) + sec.items.map(counter).join('')
+      + (unof ? '<p class="note excl" data-unof-off hidden>未公表の値を「入れない」にしているので、この組は計算に入れていません</p>' : '')
       + (per ? `<p class="note">右の％は、自分の ${PER[per]} の回数に対する割合です</p>` : '')
       + refNote(sec)
       + sec.items.filter(it => it.group === 'games' && it.counter).map(countNote).join('')
@@ -478,8 +494,16 @@ function renderSession(root, s, ctx) {
       + sec.items.filter(it => it.group === 'hint').map(hintNote).join('')
       + sec.items.filter(it => it.group === 'sum').map(splitNote).join('');
     const sum = sec.items.some(it => it.group === 'bonus') ? `<span class="fold-sum" data-fold-sum="${k}"></span>` : '';
-    return fold(`cnt:${sec.title}`, `<summary class="group-title">${esc(sec.title)}${sum}</summary>`, body);
+    return fold(`cnt:${sec.title}`, `<summary class="group-title">${esc(sec.title)}${unof ? '<span class="badge">未公表</span>' : ''}${sum}</summary>`, body);
   };
+  // 公表されていない値（機種ファイルの組の unofficial）を計算に入れるかの切り替え。入れたときと入れないときを見比べるため、
+  // 下にもう一方の場合のいちばん確からしい設定を出す（2026-10-15 ユーザーの指示）。状態は判別の記録（s.unofficialOff）に残す
+  const unofSecs = [...new Set(items.filter(it => it.unofficial && it.group !== 'games').map(it => it.sec))];
+  const unofHtml = unofSecs.length ? `<div class="unof">
+      <div class="seg"><button type="button" data-unof="on">未公表の値を入れる</button><button type="button" data-unof="off">入れない</button></div>
+      <p class="note" data-unof-alt></p>
+      <p class="note">未公表の値（判別ツールの目安・実戦値など）: ${unofSecs.map(t => `「${esc(t)}」`).join('・')}</p>
+    </div>` : '';
   // 要素ごと・設定差の表のカード。中が組に分かれていれば（A タイプ）組ごとに、1つの表なら（ジャグラー。
   // 並びは元の HTML のまま）カードの見出しでまるごとたたむ
   const card = (key, title, body, grouped) => `<section class="card">${grouped
@@ -517,6 +541,7 @@ function renderSession(root, s, ctx) {
         <span class="bar"><i data-bar="all:${i}"></i><em data-pct="all:${i}"></em></span>
       </div>`).join('')}
       <p class="note excl" data-excl hidden></p>
+      ${unofHtml}
       <p class="note">どの設定も同じ割合で入っていると置いた計算です（実際より高設定寄りに出ます）。小役は自分の消化Gのぶんだけを使います。</p>
       ${notes.length ? `<details class="caution-fold"><summary>この機種のデータの注意（${notes.length}件）</summary>
         <ul>${notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
@@ -547,6 +572,8 @@ function renderSession(root, s, ctx) {
     </div>`;
 
   rememberFolds(root, `judge:${m.id}`);
+  root.addEventListener('toggle', e => { if (e.target.classList?.contains('img-fold') && e.target.open) showThumbs(e.target); }, true);
+  bindViewer(root);
 
   const $ = sel => root.querySelector(sel);
   const setText = (sel, text) => { const el = $(sel); if (el) el.textContent = text; };
@@ -579,6 +606,21 @@ function renderSession(root, s, ctx) {
       ? `${[hints.length ? `示唆（${hints.join('・')}）` : '', ...nevers].filter(Boolean).join('・')}で、`
         + `${settingsText([...ex.idx].sort((a, b) => a - b))}を外しています` : '');
 
+    // 未公表の値の切り替えと、もう一方の場合のいちばん確からしい設定
+    if (unofSecs.length) {
+      const off = !!s.unofficialOff;
+      root.querySelectorAll('[data-unof]').forEach(b => {
+        const on = (b.dataset.unof === 'off') === off;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      root.querySelectorAll('[data-unof-off]').forEach(p => { p.hidden = !off; });
+      const alt = { ...s, unofficialOff: !off };
+      const topText = (probs, k) => { const t = J.topSetting(m, probs); return `${k} 設定${t.text} ${t.idx.length > 1 ? '各' : ''}${fmtPct(t.p)}`; };
+      const parts = [mineOn && topText(J.posterior(m, alt, false), '自分'), allOn && topText(J.posterior(m, alt, true), '前任者込み')].filter(Boolean);
+      setText('[data-unof-alt]', parts.length ? `${off ? '入れた' : '入れない'}場合: ${parts.join('・')}` : '');
+    }
+
     for (const f of FIELDS) setText(`[data-v="${f.key}"]`, fmtInt(s[f.key]));
     setText('[data-v="myG"]', fmtInt(myG));
     setText('[data-v="myAllG"]', fmtInt(J.myAllGames(s)));
@@ -590,6 +632,11 @@ function renderSession(root, s, ctx) {
       if (PER[it.per]) { const own = meas.st.own[it.per]; return own > 0 ? fmtPct(k / own) : '—'; }
       if (it.group === 'sum' || it.group === 'rest') return fmtDen(meas.mine[it.id]);
       if (it.group === 'games') return '';
+      if (it.group === 'hint' || it.group === 'tally') {
+        const c = counterOf(it);
+        const g = c ? s.counts[c.id] || 0 : 0;
+        return g > 0 && k != null ? fmtPct(k / g) : '—';
+      }
       if (it.group !== 'bonus' && it.group !== 'role') return '—';
       const g = J.gamesOf(it, s);   // AT中の欄（of）は 自分の総G − 自分の通常G
       // ± で数える分母の欄（到達の回数など）に対する項目は %（0回も 0%）
@@ -680,6 +727,13 @@ function renderSession(root, s, ctx) {
     } else if ((b = t.closest('[data-edit]'))) {
       const start = FIELDS.findIndex(f => f.key === b.dataset.edit);
       await editChain(FIELDS.map(f => ({ title: f.title, get: () => s[f.key] || 0, set: (v, empty) => setField(f.key, Math.max(0, v), empty) })), start);
+    } else if ((b = t.closest('[data-unof]'))) {
+      const off = b.dataset.unof === 'off';
+      if (!!s.unofficialOff === off) return;
+      if (off) s.unofficialOff = true;
+      else delete s.unofficialOff;
+      save();
+      update();
     } else if (t.closest('[data-top]')) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else if (t.closest('[data-place]')) {

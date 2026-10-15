@@ -4,6 +4,7 @@ import { kvGet, kvSet } from '../db.js';
 import { esc, fmtInt, fmtDate, fmtTime, toast, confirmDialog, copyText } from '../ui.js';
 import { openNumpad } from '../numpad.js';
 import { navigate } from '../nav.js';
+import { imageStatus } from '../images.js';
 
 const savedText = ms => (ms ? `${fmtDate(ms)} ${fmtTime(ms)} に保存` : '');
 
@@ -17,6 +18,7 @@ export async function render(root, args, ctx) {
   const persisted = navigator.storage?.persisted ? await navigator.storage.persisted().catch(() => null) : null;
   const est = navigator.storage?.estimate ? await navigator.storage.estimate().catch(() => null) : null;
   const appVer = document.querySelector('meta[name="app-version"]')?.content || '';
+  const img = await imageStatus().catch(() => null);
   root.innerHTML = `
     <section class="card">
       <div class="card-title">改修メモ（あとで PC で直すこと）</div>
@@ -32,7 +34,9 @@ export async function render(root, args, ctx) {
       <div class="card-title">データ</div>
       <div class="kv"><span>版</span><b>${esc(catalog.versionLabel())}</b></div>
       <div class="kv"><span>機種</span><b>${d.machines.length}</b></div>
+      ${img?.total ? `<div class="kv"><span>画像（この端末に保存）</span><b>${img.stored} / ${img.total}枚（${fmtInt(img.bytes / 1024)} KB）</b></div>` : ''}
       <button type="button" class="btn btn-block" data-update style="margin-top:10px">更新を確かめる</button>
+      ${img && img.stored < img.total ? '<p class="note">まだ取っていない画像は、電波のある所で「更新を確かめる」を押すと取ります（圏外でも見られるように）。</p>' : ''}
     </section>
     <section class="card">
       <div class="card-title">ぶどう逆算</div>

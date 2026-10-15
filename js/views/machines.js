@@ -3,6 +3,7 @@ import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
 import { matches } from '../search.js';
 import { esc, md } from '../ui.js';
+import { showThumbs, bindViewer } from '../images.js';
 import { navigate } from '../nav.js';
 import { startSession, cautionCard } from './judge.js';
 
@@ -60,6 +61,9 @@ function detail(root, id, tab, ctx) {
     ${judge ? `<div class="actions dock ${J.canBackcalc(m) ? 'two' : ''}">
       ${J.canBackcalc(m) ? '<button type="button" class="btn" data-bc>ぶどう逆算</button>' : ''}
       <button type="button" class="btn btn-accent" data-start>判別を始める</button></div>` : ''}`;
+  // メモの画像は小さく並べ、押すと全画面で見る
+  showThumbs(root);
+  bindViewer(root);
   root.querySelector('[data-start]')?.addEventListener('click', () => startSession(m));
   root.querySelector('[data-bc]')?.addEventListener('click', () => navigate('#/backcalc/' + encodeURIComponent(m.id)));
 }

@@ -1,5 +1,5 @@
 // 画面の小さな道具: 文字の書き方・お知らせ・下から出す枠・コピー・確認・たためる組の開け閉め・
-// 横に滑らせるとボタンが出る行・メモの表示
+// 横に滑らせるとボタンが出る行・メモの表示・画像の一覧
 
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -219,20 +219,33 @@ export function swipeRows(root, onAction) {
   }, true);
 }
 
-/** 機種メモの本文。段落・「-」「・」の箇条書き・**太字** だけを読む（中身は先に esc する） */
+/** 画像を小さく並べる。list は [{ id, caption }]。中身は images.js の showThumbs が入れ、押すと bindViewer が全画面で開く */
+export function imgGridHtml(list) {
+  return `<div class="img-grid">${list.map(x => `<button type="button" class="img-thumb" data-img="${esc(x.id)}" data-cap="${esc(x.caption || '')}"
+    aria-label="${esc(x.caption ? `${x.caption}を大きく見る` : '画像を大きく見る')}"><span class="img-box"><img alt="" decoding="async"></span>${
+    x.caption ? `<span class="img-cap">${esc(x.caption)}</span>` : ''}</button>`).join('')}</div>`;
+}
+
+/** 機種メモの本文。段落・「-」「・」の箇条書き・**太字**・画像の行（![説明](@id)。並んだ行は1つの一覧）だけを読む
+ *  （中身は先に esc する） */
 export function md(text) {
   const out = [];
   let mode = null;
   let buf = [];
   const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   const flush = () => {
-    if (buf.length) out.push(mode === 'ul' ? `<ul>${buf.map(x => `<li>${inline(x)}</li>`).join('')}</ul>` : `<p>${buf.map(inline).join('<br>')}</p>`);
+    if (buf.length) {
+      out.push(mode === 'ul' ? `<ul>${buf.map(x => `<li>${inline(x)}</li>`).join('')}</ul>`
+        : mode === 'img' ? imgGridHtml(buf) : `<p>${buf.map(inline).join('<br>')}</p>`);
+    }
     buf = [];
     mode = null;
   };
   for (const line of String(text || '').split('\n')) {
+    const im = line.trim().match(/^!\[([^\]]*)\]\(@([0-9a-f]+)\)$/);
     const li = line.match(/^\s*(?:[-*]\s+|・\s*)(.*)$/);
-    if (li) { if (mode !== 'ul') flush(); mode = 'ul'; buf.push(li[1]); }
+    if (im) { if (mode !== 'img') flush(); mode = 'img'; buf.push({ id: im[2], caption: im[1] }); }
+    else if (li) { if (mode !== 'ul') flush(); mode = 'ul'; buf.push(li[1]); }
     else if (!line.trim()) flush();
     else { if (mode !== 'p') flush(); mode = 'p'; buf.push(line); }
   }

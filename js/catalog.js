@@ -9,6 +9,7 @@ let aesKey = null;
 let payload = null;
 
 export const data = () => payload;
+export const cryptoKey = () => aesKey;   // 画像を解く（images.js）。取り出せない形の鍵
 export const machines = () => payload?.machines ?? [];
 export const machine = id => machines().find(m => m.id === id) || null;
 

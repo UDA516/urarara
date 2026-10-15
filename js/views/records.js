@@ -86,7 +86,7 @@ async function removeRecord(r) {
   return true;
 }
 
-function barsHtml(snap) {
+function barsHtml(snap, r) {
   const order = [...snap.settings.keys()].reverse();
   const hi = snap.settings.indexOf(snap.highLabel);
   const cell = (probs, i) => `<span class="bar"><i style="width:${probs ? (probs[i] * 100).toFixed(1) : 0}%"></i><em>${probs ? fmtPct(probs[i]) : '—'}</em></span>`;
@@ -94,6 +94,7 @@ function barsHtml(snap) {
     <div class="card-title">設定の確からしさ（${esc(snap.highLabel)}以上: 自分 ${fmtPct(snap.highMine)} / 前任者込み ${fmtPct(snap.highAll)}）</div>
     <div class="bars-head"><span></span><span>自分</span><span>前任者込み</span></div>
     ${order.map(i => `<div class="bars-row ${hi >= 0 && i >= hi ? 'is-high' : ''}"><span class="bars-label">設定${esc(snap.settings[i])}</span>${cell(snap.mine, i)}${cell(snap.all, i)}</div>`).join('')}
+    ${r.unofficialOff ? '<p class="note">未公表の値（判別ツールの目安・実戦値など）は入れずに計算しています（判別の画面の切り替え）</p>' : ''}
   </section>`;
 }
 
@@ -133,7 +134,7 @@ async function detail(root, id, ctx) {
   const snap = snapOf(r);
   root.innerHTML = `
     <p class="sub">${esc(placeText(r))} · ${fmtDate(r.startedAt)} ${fmtTime(r.startedAt)}${r.endedAt ? '〜' + fmtTime(r.endedAt) : ''}<span class="badge ${r.status === 'playing' ? 'badge-play' : ''}">${STATUS[r.status] || ''}</span></p>
-    ${snap ? barsHtml(snap) : ''}
+    ${snap ? barsHtml(snap, r) : ''}
     ${r.status !== 'memo' ? inputsHtml(r, m) : ''}
     <section class="card">
       <div class="card-title">メモ</div>

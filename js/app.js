@@ -4,6 +4,7 @@ import * as catalog from './catalog.js';
 import { esc, toast, closeSheets } from './ui.js';
 import { closeNumpad } from './numpad.js';
 import { setReroute } from './nav.js';
+import { syncImages, forgetImages } from './images.js';
 import * as machinesView from './views/machines.js';
 import * as backcalcView from './views/backcalc.js';
 import * as judgeView from './views/judge.js';
@@ -115,9 +116,11 @@ function showFatal(message) {
 }
 
 async function relock() {
+  forgetImages();
   await catalog.lock();
   await showLock('ロックしました。開くにはパスワードを入れてください');
   route();
+  syncImages();
 }
 
 // ---------------------------------------------------------------- 更新
@@ -133,10 +136,16 @@ async function checkUpdate(manual) {
     if (location.hash.startsWith('#/judge')) toast(msg, { action: '反映', onAction: route, ms: 8000 });
     else { toast(msg); route(); }
   } else if (r === 'relock') {
+    forgetImages();
     await showLock('PC でパスワードが変わりました。新しいパスワードを入れてください');
     route();
   } else if (manual) {
     toast(r === 'same' ? 'データは最新です' : r === 'offline' ? '電波がないため確かめられませんでした' : '確かめられませんでした');
+  }
+  // まだ持っていない画像を取る（圏外でも見られるように）。押して確かめたときは、取り終わるまで待つ（設定の画面の枚数のため）
+  if (r !== 'offline' && r !== 'error') {
+    const sync = syncImages();
+    if (manual) await sync;
   }
   return r;
 }
@@ -178,7 +187,7 @@ async function start() {
   document.body.classList.remove('locked');
   navigator.storage?.persist?.().catch(() => {});
   await route();
-  setTimeout(() => checkUpdate(false), 1500);
+  setTimeout(() => checkUpdate(false), 1500);   // 画像の取り込みも、この確認のあと
 }
 
 start();

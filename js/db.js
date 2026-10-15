@@ -1,5 +1,6 @@
 // 端末の保存先（IndexedDB）。
-//   kv      … 暗号化したデータ（envelope）・鍵・途中の判別の id・逆算の入力・設定
+//   kv      … 暗号化したデータ（envelope）・鍵・途中の判別の id・逆算の入力・設定・
+//             画像（'img:<id>'。暗号化したまま。images.js）
 //   records … 判別とメモの記録（1件1つ。id で引く）
 const DB_NAME = 'slot-memo';
 let dbPromise = null;
@@ -31,6 +32,11 @@ async function store(name, mode) {
 export async function kvGet(key) { const { s } = await store('kv', 'readonly'); return asPromise(s.get(key)); }
 export async function kvSet(key, value) { const { t, s } = await store('kv', 'readwrite'); s.put(value, key); return done(t); }
 export async function kvDel(key) { const { t, s } = await store('kv', 'readwrite'); s.delete(key); return done(t); }
+/** prefix で始まる鍵の一覧（画像の 'img:' など） */
+export async function kvKeys(prefix) {
+  const { s } = await store('kv', 'readonly');
+  return asPromise(s.getAllKeys(IDBKeyRange.bound(prefix, prefix + '￿')));
+}
 
 export async function recGet(id) { const { s } = await store('records', 'readonly'); return asPromise(s.get(id)); }
 export async function recPut(rec) { const { t, s } = await store('records', 'readwrite'); s.put(rec); return done(t); }

@@ -21,3 +21,9 @@ export async function decryptEnvelope(key, env) {
   const stream = new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'));
   return JSON.parse(await new Response(stream).text());
 }
+
+/** 画像のファイル（先頭12バイトが iv、残りが暗号文。build.py の pack_images と対）を解く。ArrayBuffer を返す */
+export function decryptBytes(key, buf) {
+  const b = new Uint8Array(buf);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.subarray(0, 12) }, key, b.subarray(12));
+}
