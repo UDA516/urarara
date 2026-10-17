@@ -10,6 +10,7 @@ import { openNumpad, editChain } from '../numpad.js';
 import { matches } from '../search.js';
 import { navigate } from '../nav.js';
 import { makeShare, readShare } from '../share.js';
+import * as SC from '../scenario.js';
 
 /** 前任者・自分の欄の名前。BIG・REG の場所に数えるものと G数の呼び名は機種ファイルの [names]
  *  （AT機は「ST」「CZ」「通常G」など。2026-10-13）。key は記録の項目名（startG・prevBig・prevReg・totalG のまま）。
@@ -569,6 +570,7 @@ function renderSession(root, s, ctx) {
       ${sections.map(sectionHtml).join('')}
       ${dashNote}
     </section>
+    ${m.scenario ? card('sc:all', `${esc(m.scenario.label)}の判別`, SC.html(m), false) : ''}
     ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}${J.ratioNote(m)}
       <p class="note"><span class="mk mk-near">塗り</span>近い設定。${esc(withPrevText)}は前任者と自分を合わせた値、ほかの列は自分の値（${esc(L.myG)}と自分の回数${
         items.some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : ''}）で</p>`,
@@ -640,11 +642,15 @@ function renderSession(root, s, ctx) {
     const rateText = (it, k) => {
       if (PER[it.per]) { const own = meas.st.own[it.per]; return own > 0 ? fmtPct(k / own) : '—'; }
       if (it.group === 'sum' || it.group === 'rest') return fmtDen(meas.mine[it.id]);
-      if (it.group === 'games') return '';
+      // per = "games" の組の ± で数える分母の欄は、自分の G数に対する 1/N（2026-10-17）
+      if (it.group === 'games') return it.per === 'games' ? (myG > 0 && k > 0 ? fmtDen(myG / k) : '—') : '';
       if (it.group === 'hint' || it.group === 'tally') {
         const c = counterOf(it);
-        const g = c ? s.counts[c.id] || 0 : 0;
-        return g > 0 && k != null ? fmtPct(k / g) : '—';
+        if (c) { const g = s.counts[c.id] || 0; return g > 0 && k != null ? fmtPct(k / g) : '—'; }
+        // テンキーで入れる G数の欄のある組はその G数、per = "games" の組は自分の G数に対する 1/N（設定1 の値と見比べる）
+        const t = items.find(x => x.sec === it.sec && x.group === 'games');
+        const g = t ? s.counts[t.id] || 0 : it.per === 'games' ? myG : 0;
+        return (t || it.per === 'games') && g > 0 && k > 0 ? fmtDen(g / k) : '—';
       }
       if (it.group !== 'bonus' && it.group !== 'role') return '—';
       const g = J.gamesOf(it, s);   // AT中の欄（of）は 自分の総G − 自分の通常G
@@ -676,6 +682,9 @@ function renderSession(root, s, ctx) {
     for (const [c, idx] of Object.entries(J.specMarks(m, meas))) {
       idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add('mk-near'));
     }
+
+    // シナリオ判別（機種ファイルの [scenario] がある機種だけ。設定の確からしさとは別に出す。scenario.js）
+    if (m.scenario) SC.update(root, m, s);
 
     $('[data-place]').textContent = `${placeText(s)} · ${fmtTime(s.startedAt)}から`;
     $('[data-memo]').textContent = s.memo ? 'メモ（あり）' : 'メモを書く';
@@ -711,7 +720,9 @@ function renderSession(root, s, ctx) {
   root.addEventListener('click', async e => {
     const t = e.target;
     let b;
-    if ((b = t.closest('[data-inc]')) || (b = t.closest('[data-dec]'))) {
+    if (m.scenario && t.closest('[data-sc-add], [data-sc-edit], [data-sc-hint], [data-sc-next-hint], [data-sc-reset]')) {
+      if (await SC.click(t, m, s)) { save(); update(); }
+    } else if ((b = t.closest('[data-inc]')) || (b = t.closest('[data-dec]'))) {
       // 「—」から＋で1（数え始め）。「—」は−で変えない
       const id = b.dataset.inc || b.dataset.dec;
       const cur = Number.isFinite(s.counts[id]) ? s.counts[id] : null;

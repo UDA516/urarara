@@ -255,6 +255,41 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .fold > summary.card-title { margin-bottom: 0; padding: 4px 0; }
 .fold[open] > summary.card-title { margin-bottom: 6px; }
 
+/* シナリオ判別（scenario.js）。レベルは低い順に lv-0〜（色は灰・青・橙・ピンク）。次の回の列に枠、入れた回の列は薄く */
+.sc-head { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.sc-head b { color: var(--accent); font-size: 16px; }
+.sc-levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 6px; margin-bottom: 6px; }
+.sc-levels span { padding: 4px 6px; border-radius: 6px; background: var(--surface-2); font-size: 15px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.sc-levels small { display: block; text-align: left; font-size: 11px; color: var(--text-dim); }
+.sc-levels .zero { opacity: 0.45; }
+.tbl tr.zero td { color: var(--text-faint); }
+.sc-tbl { width: 100%; border-collapse: collapse; font-size: 11px; text-align: center; }
+.sc-tbl th, .sc-tbl td { padding: 4px 2px; border: 1px solid var(--border); }
+.sc-tbl th { color: var(--text-dim); font-weight: 700; }
+.sc-tbl td:first-child { font-weight: 700; font-size: 13px; }
+.sc-tbl .sc-p { min-width: 54px; text-align: right; padding-right: 4px; font-weight: 700; font-size: 12px; font-variant-numeric: tabular-nums;
+  background: linear-gradient(to right, var(--accent-soft) var(--w, 0%), transparent var(--w, 0%)); }
+.sc-tbl .lv-0 { color: var(--text-faint); }
+.sc-tbl .lv-1 { color: var(--rate); }
+.sc-tbl .lv-2 { color: var(--warn); font-weight: 700; }
+.sc-tbl .lv-3, .sc-tbl .lv-4 { color: var(--accent); font-weight: 700; }
+.sc-tbl .sc-done { opacity: 0.4; }
+.sc-tbl th.sc-now { background: var(--accent-soft); color: var(--accent); }
+.sc-tbl td.sc-now { box-shadow: inset 2px 0 0 var(--accent), inset -2px 0 0 var(--accent); background: var(--surface-2); }
+.sc-tbl tr.sc-out td { opacity: 0.3; }
+.sc-tbl tr.sc-out td.sc-p { background: none; }
+.sc-rows { display: grid; gap: 6px; margin: 6px 0 4px; }
+.sc-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; width: 100%; padding: 9px 10px; text-align: left;
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text); }
+.sc-row .k { min-width: 3.5em; color: var(--text-dim); font-size: 12px; }
+.sc-row b { font-size: 15px; }
+.sc-row small { width: 100%; padding-left: calc(3.5em + 10px); font-size: 11px; color: var(--warn); }
+.sc-row:active { background: var(--surface-3); }
+.sc-add { justify-content: center; border-style: dashed; color: var(--accent); font-weight: 700; }
+.sc-sub { margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--text-dim); }
+.sc-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+.chip:disabled { opacity: 0.4; }
+
 .spec-wrap { margin: 0 -12px; padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .spec { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; text-align: center; }
 /* A タイプは表を組（ボーナス・契機・小役など）に分ける。列が少ないので幅を詰め、入らなければ横に送る */

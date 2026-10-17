@@ -59,7 +59,7 @@ export const refKind = (m, kind) => {
 /** 回数を計算に入れない組のうち、項目が2つ以上のもの（内訳の割合を計算に入れる）。{ sec, parts } の並び */
 export function refGroups(m) {
   const out = [];
-  for (const it of items(m).filter(x => x.group === 'bonus' && x.ref)) {
+  for (const it of items(m).filter(x => x.group === 'bonus' && x.ref && m.table[x.id])) {   // 確率の無い項目は数えるだけ
     let g = out.find(x => x.sec === it.sec);
     if (!g) out.push(g = { sec: it.sec, parts: [] });
     g.parts.push(it);
@@ -184,12 +184,13 @@ export function specGroups(m) {
   }
   // 名前を付け替えた機種（[names]）は「ST<br>確率」のように
   const lab = (k, def) => (m.names?.[k] ? `${esc(m.names[k])}<br>確率` : def);
-  head.push(
+  // 確率の出ていない CZ などを数えるだけの組（AT機の REG の場所）は、表に列が無い
+  head.push(...[
     { c: 'big', label: lab('big', 'BB確率'), text: v => v.toFixed(1) },
     { c: 'reg', label: lab('reg', 'RB確率'), text: v => v.toFixed(1) },
-  );
+  ].filter(c => Array.isArray(m.table[c.c])));
   const groups = [{ title: mainTitle(m), cols: head }];
-  for (const it of items(m).filter(it => hasCol(it) && !it.of && !plainBonus(m, it))) {
+  for (const it of items(m).filter(it => hasCol(it) && m.table[it.id] && !it.of && !plainBonus(m, it))) {
     const title = groupTitle(it);
     let g = groups.find(x => x.title === title);
     if (!g) groups.push(g = { title, cols: [] });

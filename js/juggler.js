@@ -32,8 +32,9 @@ export const names = A.names;
 export const hasCombo = A.hasCombo;
 export const mainTitle = A.mainTitle;
 
+/** 判別できるか。AT機の REG の場所は、確率の出ていない CZ などを数えるだけの組（ref で確率なし）でもよい（2026-10-17） */
 export function isJudgeable(m) {
-  return !!m && (m.type === 'juggler' || isA(m)) && has(m, 'big') && has(m, 'reg');
+  return !!m && (m.type === 'juggler' || isA(m)) && has(m, 'big') && (has(m, 'reg') || (isA(m) && A.refKind(m, 'reg')));
 }
 
 /** ぶどう逆算はジャグラーだけ（A タイプはボーナスの純増のぶれが大きく、逆算しない。ユーザーの指示 2026-10-08） */
