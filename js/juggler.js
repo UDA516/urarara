@@ -27,10 +27,13 @@ const has = (m, c) => Array.isArray(m.table?.[c]);
 /** 数える項目を機種ファイルに書く型（A タイプ・AT機） */
 const isA = m => m?.type === 'atype' || m?.type === 'at';
 
-/** BIG・REG の場所に数えるものの名前と G数の呼び名（[names]。ジャグラーは BIG・REG のまま）・合算を出すか・先頭の組の名前 */
+/** BIG・REG の場所に数えるものの名前と G数の呼び名（[names]。ジャグラーは BIG・REG のまま）・合算・BR比率を出すか・先頭の組の名前 */
 export const names = A.names;
 export const hasCombo = A.hasCombo;
+export const hasBr = A.hasBr;
 export const mainTitle = A.mainTitle;
+/** 前任者の BIG・REG の場所の回数を入れ、「前任者込み」を出すか（AT機は G数だけを引き継ぐ。2026-10-17） */
+export const usesPrev = A.usesPrev;
 
 /** 判別できるか。AT機の REG の場所は、確率の出ていない CZ などを数えるだけの組（ref で確率なし）でもよい（2026-10-17） */
 export function isJudgeable(m) {
@@ -182,7 +185,7 @@ export function excluded(m, s) {
   return idx.size < m.settings.length ? { idx, by } : { idx: new Set(), by: [] };
 }
 
-/** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる。
+/** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる（AT機は入れない。usesPrev）。
  *  小役は「—」（数えていない）なら入れない（0回は「引かなかった」として入れる）。
  *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL）。
  *  回数を計算に入れないボーナスの組（ref）は、内訳の割合だけ（A.refLL）。前任者のその回数も入れない */
@@ -204,7 +207,7 @@ export function posterior(m, s, withPrev) {
     }
     if (myG > 0) for (const sp of sps) ll += A.splitLL(m, sp, s.counts, myG, i);
     for (const g of refs) ll += A.refLL(m, g, s.counts, i);
-    if (withPrev && s.startG > 0) {
+    if (withPrev && usesPrev(m) && s.startG > 0) {
       if (prevBig) ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]);
       if (prevReg) ll += binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
     }
@@ -222,10 +225,10 @@ export function topSetting(m, probs) {
   return { idx, text: idx.map(i => m.settings[i]).join('・'), p: max };
 }
 
-/** 記録に残す、その時点の結果 */
+/** 記録に残す、その時点の結果。前任者込み（all）は AT機では null */
 export function snapshot(m, s) {
   const mineOn = myGames(s) > 0;
-  const allOn = mineOn || (s.startG || 0) > 0;
+  const allOn = usesPrev(m) && (mineOn || (s.startG || 0) > 0);
   const mine = mineOn ? posterior(m, s, false) : null;
   const all = allOn ? posterior(m, s, true) : null;
   return {
@@ -331,7 +334,8 @@ export function elementRows(m) {
 }
 
 // 設定差の表の塗りに、前任者と自分を合わせた値を使う列（BIG・REG から出す列）。ほかの列（内訳・小役）は
-// 自分の値（自分の消化Gと自分の回数）で塗る。前任者は BIG・REG の合計しか分からないため
+// 自分の値（自分の消化Gと自分の回数）で塗る。前任者は BIG・REG の合計しか分からないため。
+// AT機は前任者の回数を入れないので、全部の列を自分の値で塗る
 const WITH_PREV = new Set(['combo', 'big', 'reg', 'br']);
 
 /** 設定差の表の組（{ title, cols }）。ジャグラーは1つの表、A タイプはボーナス・契機・小役などに分ける */
@@ -411,7 +415,7 @@ export function specMarks(m, meas) {
   const marks = {};
   for (const { c, noMark } of specColumns(m)) {
     if (c === 'payout' || noMark) continue;
-    const near = nearest(m, c, (WITH_PREV.has(c) ? meas.all : meas.mine)[c]);
+    const near = nearest(m, c, (WITH_PREV.has(c) && usesPrev(m) ? meas.all : meas.mine)[c]);
     if (near) marks[c] = near.idx;
   }
   return marks;

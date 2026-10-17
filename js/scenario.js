@@ -70,7 +70,30 @@ function topText(sc, post) {
 const tableLabel = (sc, id) => (id == null ? '分からない' : byId(sc.tables, id)?.label ?? `${id}（今の表に無い）`);
 const hintLabels = (list, ids) => (ids || []).map(id => byId(list, id)?.label).filter(Boolean);
 
-/** 判別の画面のカードの中身（数字は update で入れる） */
+/** 判別の画面の上に固定した欄のボタンに出すもの（{ v, sub }）。次の回の成功期待度と、何回目か。
+ *  合うシナリオが無い・この先の回が無いときは v が「—」 */
+export function summary(m, s) {
+  const sc = m.scenario;
+  const a = analyze(sc, s.scenario);
+  if (!a.post) return { v: '—', sub: '合わない' };
+  if (a.n >= maxRows(sc)) return { v: '—', sub: 'この先なし' };
+  return { v: fmtPct(a.success), sub: `${sc.step}${a.n + 1}回目` };
+}
+
+/** シナリオ判別の枠（下から出す）。判別の画面の上に固定した欄のボタンから、どこまで送っていても呼び出せる
+ *  （2026-10-17 ユーザーの指示。前は画面の途中のカードだった）。直すたびに onChange（保存して画面を描き直す） */
+export function openPanel(m, s, onChange) {
+  const sc = m.scenario;
+  const sheet = openSheet(`<div class="sheet-title">${esc(sc.label)}の判別</div>${html(m)}
+    <button type="button" class="btn btn-ghost btn-block" data-sc-close>閉じる</button>`);
+  update(sheet.el, m, s);
+  sheet.el.addEventListener('click', async e => {
+    if (e.target.closest('[data-sc-close]')) { sheet.close(); return; }
+    if (await click(e.target, m, s)) { onChange(); update(sheet.el, m, s); }
+  });
+}
+
+/** 枠の中身（数字は update で入れる） */
 export function html(m) {
   const sc = m.scenario;
   const cols = [...Array(maxRows(sc)).keys()];

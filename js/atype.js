@@ -7,14 +7,30 @@
 import { esc } from './ui.js';
 
 /** BIG・REG の場所に数えるものの名前と、G数の呼び名（機種ファイルの [names]。無ければ BIG・REG、games は null）。
- *  all は通常G のほかに入れる総G の呼び名（AT中も数える項目の分母。無ければ null） */
-export const names = m => ({ big: m?.names?.big || 'BIG', reg: m?.names?.reg || 'REG', games: m?.names?.games || null, all: m?.names?.all || null });
+ *  all は通常G のほかに入れる総G の呼び名（AT中も数える項目の分母。無ければ null）。
+ *  combo は合算の呼び名（A タイプで、BIG・REG の場所の和がボーナス合算でないとき。無ければ null。2026-10-17） */
+export const names = m => ({
+  big: m?.names?.big || 'BIG', reg: m?.names?.reg || 'REG', combo: m?.names?.combo || null,
+  games: m?.names?.games || null, all: m?.names?.all || null,
+});
 
 /** 合算・BR比率を出す型か（AT機は出さない） */
 export const hasCombo = m => m?.type !== 'at';
 
-/** 合算・BIG・REG をまとめた組の名前（要素ごと・設定差の表の先頭の組。判別の画面の契機の内訳が無いボーナスの組） */
-export const mainTitle = m => (hasCombo(m) ? 'ボーナス' : `${names(m).big}・${names(m).reg}`);
+/** 前任者の BIG・REG の場所の回数を入れ、「前任者込み」を出す型か。AT機は前任者の ST・CZ などを入れず、
+ *  G数（打ち始め）だけを引き継ぐ（2026-10-17 ユーザーの指示「A タイプとジャグラー以外では前任者の設定情報はいらない、
+ *  ゲーム数のみ引き継ぐ」） */
+export const usesPrev = m => m?.type !== 'at';
+
+/** BIG・REG の場所の名前を付け替えたか（[names] の big・reg。BB直撃 と BT の入口のように、ボーナスの BIG・REG でないものを数える） */
+const renamed = m => !!(m?.names?.big || m?.names?.reg);
+
+/** BR比率を出すか。名前を付け替えた A タイプは、合算は出すが BR比率は出さない（2つの比に意味が無いため。2026-10-17） */
+export const hasBr = m => hasCombo(m) && !renamed(m);
+
+/** 合算・BIG・REG をまとめた組の名前（要素ごと・設定差の表の先頭の組。判別の画面の契機の内訳が無いボーナスの組）。
+ *  BIG・REG の場所の名前を付け替えた A タイプも「○○・○○」（ボーナスでないものを数えることがあるため） */
+export const mainTitle = m => (hasCombo(m) && !renamed(m) ? 'ボーナス' : `${names(m).big}・${names(m).reg}`);
 
 /** items の group:
  *   bonus（契機別のボーナス。kind で BIG・REG に足す）・role（小役。per があればその G数の欄で、of（AT中の欄）なら
@@ -156,11 +172,11 @@ export function splitLL(m, sp, counts, games, i) {
 /** 要素ごとの表の行。合算・BIG・REG と、設定差のある項目（無いものはどの設定にも同じ近さで、出しても意味が無い）。
  *  sec は組の名前（組ごとにたためる表にする）、label は組の中での名前 */
 export function elementRows(m) {
-  const N = names(m), main = mainTitle(m);
+  const N = names(m), main = mainTitle(m), both = usesPrev(m);   // 前任者込みの列（AT機は無い）
   return [
-    ...(hasCombo(m) ? [{ c: 'combo', label: 'ボーナス合算', both: true, sec: main }] : []),
-    { c: 'big', label: N.big, both: true, sec: main },
-    { c: 'reg', label: N.reg, both: true, sec: main },
+    ...(hasCombo(m) ? [{ c: 'combo', label: N.combo || 'ボーナス合算', both, sec: main }] : []),
+    { c: 'big', label: N.big, both, sec: main },
+    { c: 'reg', label: N.reg, both, sec: main },
     ...items(m).filter(it => hasCol(it) && !it.hidden && !it.of && !plainBonus(m, it) && varies(m, it.id))
       .map(it => ({ c: it.id, label: colLabel(m, it), both: false, sec: groupTitle(it), ...(it.pct ? { pct: true } : {}) })),
   ];
@@ -176,12 +192,8 @@ const fmtP = v => (v == null ? '—' : `${(100 / v).toFixed(1)}%`);
 export function specGroups(m) {
   const head = [];
   if (Array.isArray(m.table.payout)) head.push({ c: 'payout', label: '出玉率', text: String });
-  if (hasCombo(m)) {
-    head.push(
-      { c: 'br', label: 'BR比率', text: v => `${v.toFixed(2)} : 1` },
-      { c: 'combo', label: 'ボーナス<br>合算', text: v => v.toFixed(1) },
-    );
-  }
+  if (hasBr(m)) head.push({ c: 'br', label: 'BR比率', text: v => `${v.toFixed(2)} : 1` });
+  if (hasCombo(m)) head.push({ c: 'combo', label: m.names?.combo ? esc(m.names.combo) : 'ボーナス<br>合算', text: v => v.toFixed(1) });
   // 名前を付け替えた機種（[names]）は「ST<br>確率」のように
   const lab = (k, def) => (m.names?.[k] ? `${esc(m.names[k])}<br>確率` : def);
   // 確率の出ていない CZ などを数えるだけの組（AT機の REG の場所）は、表に列が無い

@@ -26,15 +26,16 @@ export function fieldLabels(m) {
   };
 }
 
-/** 「次へ」で送る順。前任者の3つを入れてから総Gへ。総G もある機種は、メニューで並んで見える通常G と総G を続けて */
+/** 「次へ」で送る順。前任者の3つを入れてから総Gへ。総G もある機種は、メニューで並んで見える通常G と総G を続けて。
+ *  AT機は前任者の ST・CZ などを入れず、G数だけ（2026-10-17。J.usesPrev） */
 const fieldsOf = m => {
   const L = fieldLabels(m);
   const all = !!L.startAllG;
+  const prev = J.usesPrev(m);
   return [
     { key: 'startG', title: `前任者の${L.startG}` },
     ...(all ? [{ key: 'startAllG', title: `前任者の${L.startAllG}` }] : []),
-    { key: 'prevBig', title: `前任者の${L.prevBig}` },
-    { key: 'prevReg', title: `前任者の${L.prevReg}` },
+    ...(prev ? [{ key: 'prevBig', title: `前任者の${L.prevBig}` }, { key: 'prevReg', title: `前任者の${L.prevReg}` }] : []),
     { key: 'totalG', title: L.totalG },
     ...(all ? [{ key: 'totalAllG', title: L.totalAllG }] : []),
   ];
@@ -169,10 +170,12 @@ async function beginSession(m, prefill) {
   const now = Date.now();
   const startG = prefill.startG || 0;
   const all = prefill.startAllG != null || prefill.totalAllG != null;   // AT機の総G（共有された値だけ）
+  const prev = J.usesPrev(m);   // AT機は前任者の回数を引き継がない（前の共有の文字列に入っていても）
   const s = {
     id: newId(), status: 'playing', machineId: m.id, machineName: m.name, dataVersion: catalog.data().version,
     store: place.store, num: place.num, startedAt: now, updatedAt: now, exportedAt: null,
-    startG, totalG: Math.max(prefill.totalG || 0, startG), prevBig: prefill.prevBig || 0, prevReg: prefill.prevReg || 0,
+    startG, totalG: Math.max(prefill.totalG || 0, startG),
+    prevBig: prev ? prefill.prevBig || 0 : 0, prevReg: prev ? prefill.prevReg || 0 : 0,
     ...(all ? { startAllG: prefill.startAllG || 0, totalAllG: Math.max(prefill.totalAllG || 0, prefill.startAllG || 0) } : {}),
     counts: { ...prefill.counts }, memo: '',
     ...(prefill.sharedAt ? { sharedAt: prefill.sharedAt } : {}),
@@ -333,7 +336,7 @@ async function startShared(x) {
   const before = `<div class="card">
       <div class="card-title">共有された値${when}</div>
       ${row(`前任者の${L.startG}`, fmtInt(f.startG))}
-      ${row(`前任者の${L.prevBig} / ${L.prevReg}`, `${fmtInt(f.prevBig)} / ${fmtInt(f.prevReg)}`)}
+      ${J.usesPrev(m) ? row(`前任者の${L.prevBig} / ${L.prevReg}`, `${fmtInt(f.prevBig)} / ${fmtInt(f.prevReg)}`) : ''}
       ${row(L.myG, fmtInt(J.myGames(f)))}
       ${L.myAllG ? row(L.myAllG, fmtInt(J.myAllGames(f))) : ''}
       ${row('回数の入った項目', `${Object.keys(x.counts).length}`)}
@@ -397,6 +400,9 @@ function renderSession(root, s, ctx) {
   const N = J.names(m);
   const hi = J.highIndex(m);
   const order = [...m.settings.keys()].reverse();   // 設定6 を上に（渡されたカウンターと同じ）
+  // 前任者の回数を入れ、「前任者込み」を出すか。AT機は前任者の G数だけを引き継ぎ、結果は自分だけ（2026-10-17）
+  const prev = J.usesPrev(m);
+  const kinds = prev ? ['mine', 'all'] : ['mine'];
   const field = (key, label) => `<button type="button" class="field" data-edit="${key}"><span class="k">${label}</span><b data-v="${key}"></b></button>`;
   // A タイプの G数の欄（ボーナスゲーム中のG数など。その組の小役の分母）は、カウンターでなくテンキーで入れる欄。
   // 後から内訳が分かる組: 合算と見られる種別はカウンター（合算は種別が全部分かると種別の和になり、±を隠す。update）。
@@ -441,7 +447,7 @@ function renderSession(root, s, ctx) {
     const parts = sec.items.filter(it => it.ref);
     if (!parts.length) return '';
     const name = esc(parts[0].sec);
-    return `<p class="note">${name}の回数は、ほかの項目と重なるので計算に入れません（前任者の分も。近い設定だけ出します）。`
+    return `<p class="note">${name}の回数は、ほかの項目と重なるので計算に入れません（${prev ? '前任者の分も。' : ''}近い設定だけ出します）。`
       + `${parts.length > 1 ? `${parts.map(it => `「${esc(it.short)}」`).join('・')}の割合は計算に入れます` : ''}</p>`;
   };
   // ± で数える分母の欄（counter）。分母を数え始めたら、その組の項目も数えているので、「—」の項目を 0回にする（countFrom）
@@ -533,23 +539,36 @@ function renderSession(root, s, ctx) {
     ? fold(`el:${g.title}`, `<summary class="fold-title">${esc(g.title)}</summary>`, elTable(g.rows, g.rows.some(r => r.both)))
     : elTable(g.rows, true))).join('');
   const notes = J.cautions(m);   // 始めるときに出した注意。途中から開いたときのために、たたんで残す
-  // 設定差の表で前任者と合わせた値で塗る列の名前（[names] があればその名前。AT機は合算・BR比率が無い）
-  const withPrevText = [m.names?.big || 'BB', m.names?.reg || 'RB', ...(J.hasCombo(m) ? ['合算', 'BR比率'] : [])].join('・');
+  // 設定差の表で前任者と合わせた値で塗る列の名前（[names] があればその名前。AT機は合算・BR比率が無く、
+  // 名前を付け替えた A タイプは BR比率が無い）。AT機は前任者の回数を入れないので、全部の列を自分の値で塗る
+  const withPrevText = [m.names?.big || 'BB', m.names?.reg || 'RB', ...(J.hasCombo(m) ? [m.names?.combo || '合算'] : []),
+    ...(J.hasBr(m) ? ['BR比率'] : [])].join('・');
+  const markNote = prev
+    ? `${esc(withPrevText)}は前任者と自分を合わせた値、ほかの列は自分の値（${esc(L.myG)}と自分の回数${
+      items.some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : ''}）で`
+    : `自分の値（${esc(L.myG)}と自分の回数${items.some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : ''}）で`;
+  const KIND_TEXT = { mine: '自分', all: '前任者込み' };
 
+  // 上に固定した欄: 近似の設定（押すと先頭へ）と、シナリオ判別のある機種はそれを呼び出すボタン
+  // （2026-10-17 ユーザーの指示「上部に常に出ている設定情報のところにボタンを配置していつでも呼び出せるように」）
   root.innerHTML = `
     <button type="button" class="place" data-place></button>
-    <button type="button" class="summary" data-top aria-label="結果の先頭へ">
-      <span><span class="k">近似の設定 · 自分</span><b data-sum="mine">—</b><span class="sum-p" data-sum-p="mine"></span></span>
-      <span><span class="k">近似の設定 · 前任者込み</span><b data-sum="all">—</b><span class="sum-p" data-sum-p="all"></span></span>
-    </button>
+    <div class="summary">
+      <button type="button" class="sum-top${kinds.length > 1 ? ' two' : ''}" data-top aria-label="結果の先頭へ">
+        ${kinds.map(k => `<span><span class="k">近似の設定 · ${KIND_TEXT[k]}</span><b data-sum="${k}">—</b><span class="sum-p" data-sum-p="${k}"></span></span>`).join('')}
+      </button>
+      ${m.scenario ? `<button type="button" class="sum-sc" data-sc-open aria-label="${esc(m.scenario.label)}の判別を開く">
+        <span class="k">${esc(m.scenario.label)} ›</span><b data-sc-sum>—</b><span class="sum-p" data-sc-sum-p></span></button>` : ''}
+    </div>
     <section class="card">
       <div class="card-title">設定の確からしさ</div>
-      <div class="bars-head"><span></span><span>自分</span><span>前任者込み</span></div>
+      <div class="bars${prev ? '' : ' bars-one'}">
+      <div class="bars-head"><span></span>${kinds.map(k => `<span>${KIND_TEXT[k]}</span>`).join('')}</div>
       ${order.map(i => `<div class="bars-row ${i >= hi ? 'is-high' : ''}">
         <span class="bars-label">設定${esc(m.settings[i])}</span>
-        <span class="bar"><i data-bar="mine:${i}"></i><em data-pct="mine:${i}"></em></span>
-        <span class="bar"><i data-bar="all:${i}"></i><em data-pct="all:${i}"></em></span>
+        ${kinds.map(k => `<span class="bar"><i data-bar="${k}:${i}"></i><em data-pct="${k}:${i}"></em></span>`).join('')}
       </div>`).join('')}
+      </div>
       <p class="note excl" data-excl hidden></p>
       ${unofHtml}
       <p class="note">どの設定も同じ割合で入っていると置いた計算です（実際より高設定寄りに出ます）。小役は自分の消化Gのぶんだけを使います。</p>
@@ -559,7 +578,10 @@ function renderSession(root, s, ctx) {
     ${card('el:all', '要素ごと（近い設定）', elementHtml, elGroups.some(g => g.title))}
     <section class="card">
       <div class="card-title">前任者（打ち始め時）</div>
-      ${L.startAllG
+      ${!prev
+        ? `<div class="fields2">${field('startG', esc(L.startG))}${L.startAllG ? field('startAllG', esc(L.startAllG)) : ''}</div>
+          <p class="note">${esc(N.big)}・${esc(N.reg)}など前任者の回数は入れず、G数だけを引き継ぎます（結果は自分の分だけ）</p>`
+        : L.startAllG
         ? `<div class="fields2">${field('startG', esc(L.startG))}${field('startAllG', esc(L.startAllG))}${field('prevBig', esc(L.prevBig))}${field('prevReg', esc(L.prevReg))}</div>`
         : `<div class="fields3">${field('startG', esc(L.startG))}${field('prevBig', esc(L.prevBig))}${field('prevReg', esc(L.prevReg))}</div>`}
     </section>
@@ -570,10 +592,8 @@ function renderSession(root, s, ctx) {
       ${sections.map(sectionHtml).join('')}
       ${dashNote}
     </section>
-    ${m.scenario ? card('sc:all', `${esc(m.scenario.label)}の判別`, SC.html(m), false) : ''}
     ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}${J.ratioNote(m)}
-      <p class="note"><span class="mk mk-near">塗り</span>近い設定。${esc(withPrevText)}は前任者と自分を合わせた値、ほかの列は自分の値（${esc(L.myG)}と自分の回数${
-        items.some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : ''}）で</p>`,
+      <p class="note"><span class="mk mk-near">塗り</span>近い設定。${markNote}</p>`,
       J.specGroups(m).some(g => g.title))}
     <div class="actions">
       <button type="button" class="btn btn-block" data-memo></button>
@@ -592,16 +612,17 @@ function renderSession(root, s, ctx) {
   function update() {
     const myG = J.myGames(s);
     const mineOn = myG > 0;
-    const allOn = mineOn || (s.startG || 0) > 0;
+    const allOn = prev && (mineOn || (s.startG || 0) > 0);
     const pm = mineOn ? J.posterior(m, s, false) : null;
     const pa = allOn ? J.posterior(m, s, true) : null;
+    const shown = prev ? [['mine', pm], ['all', pa]] : [['mine', pm]];
     // 上の要約は、いちばん確からしい設定とその割合（ユーザーの指示 2026-10-10。前は「4以上」の割合）
-    for (const [kind, probs] of [['mine', pm], ['all', pa]]) {
+    for (const [kind, probs] of shown) {
       const top = probs && J.topSetting(m, probs);
       setText(`[data-sum="${kind}"]`, top ? `設定${top.text}` : '—');
       setText(`[data-sum-p="${kind}"]`, top ? `${top.idx.length > 1 ? '各' : ''}${fmtPct(top.p)}` : '');
     }
-    for (const [kind, probs] of [['mine', pm], ['all', pa]]) {
+    for (const [kind, probs] of shown) {
       m.settings.forEach((_, i) => {
         $(`[data-bar="${kind}:${i}"]`).style.width = probs ? `${(probs[i] * 100).toFixed(1)}%` : '0';
         setText(`[data-pct="${kind}:${i}"]`, probs ? fmtPct(probs[i]) : '—');
@@ -628,7 +649,7 @@ function renderSession(root, s, ctx) {
       root.querySelectorAll('[data-unof-off]').forEach(p => { p.hidden = !off; });
       const alt = { ...s, unofficialOff: !off };
       const topText = (probs, k) => { const t = J.topSetting(m, probs); return `${k} 設定${t.text} ${t.idx.length > 1 ? '各' : ''}${fmtPct(t.p)}`; };
-      const parts = [mineOn && topText(J.posterior(m, alt, false), '自分'), allOn && topText(J.posterior(m, alt, true), '前任者込み')].filter(Boolean);
+      const parts = [mineOn && topText(J.posterior(m, alt, false), '自分'), allOn && topText(J.posterior(m, alt, true), '前任者込み')].filter(Boolean);   // allOn は AT機では false
       setText('[data-unof-alt]', parts.length ? `${off ? '入れた' : '入れない'}場合: ${parts.join('・')}` : '');
     }
 
@@ -683,8 +704,13 @@ function renderSession(root, s, ctx) {
       idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add('mk-near'));
     }
 
-    // シナリオ判別（機種ファイルの [scenario] がある機種だけ。設定の確からしさとは別に出す。scenario.js）
-    if (m.scenario) SC.update(root, m, s);
+    // シナリオ判別（機種ファイルの [scenario] がある機種だけ。設定の確からしさとは別に出す。scenario.js）。
+    // 上の欄のボタンには次の回の成功期待度を出し、中身は押すと下から出す枠
+    if (m.scenario) {
+      const sc = SC.summary(m, s);
+      setText('[data-sc-sum]', sc.v);
+      setText('[data-sc-sum-p]', sc.sub);
+    }
 
     $('[data-place]').textContent = `${placeText(s)} · ${fmtTime(s.startedAt)}から`;
     $('[data-memo]').textContent = s.memo ? 'メモ（あり）' : 'メモを書く';
@@ -720,8 +746,8 @@ function renderSession(root, s, ctx) {
   root.addEventListener('click', async e => {
     const t = e.target;
     let b;
-    if (m.scenario && t.closest('[data-sc-add], [data-sc-edit], [data-sc-hint], [data-sc-next-hint], [data-sc-reset]')) {
-      if (await SC.click(t, m, s)) { save(); update(); }
+    if (m.scenario && t.closest('[data-sc-open]')) {
+      SC.openPanel(m, s, () => { save(); update(); });
     } else if ((b = t.closest('[data-inc]')) || (b = t.closest('[data-dec]'))) {
       // 「—」から＋で1（数え始め）。「—」は−で変えない
       const id = b.dataset.inc || b.dataset.dec;

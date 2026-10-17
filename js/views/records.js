@@ -20,11 +20,18 @@ function snapOf(r) {
   return m && J.isJudgeable(m) ? J.snapshot(m, { counts: {}, ...r }) : null;
 }
 
+/** 前任者込みを出すか。AT機は出さない（前任者は G数だけを引き継ぐ。2026-10-17。前に終えた記録の結果に残っていても）。
+ *  今のデータに無い機種は、結果に前任者込みがあれば出す */
+function showAll(r, snap) {
+  const m = catalog.machine(r.machineId);
+  return m ? J.usesPrev(m) : !!snap?.all;
+}
+
 function summaryOf(r) {
   if (r.status === 'memo') return r.memo ? r.memo.replace(/\s+/g, ' ').slice(0, 40) : 'メモ';
   const snap = snapOf(r);
   const parts = [`${fmtInt(r.totalG)}G`];
-  if (snap) parts.push(`${snap.highLabel}以上 自分 ${fmtPct(snap.highMine)} / 込み ${fmtPct(snap.highAll)}`);
+  if (snap) parts.push(`${snap.highLabel}以上 自分 ${fmtPct(snap.highMine)}${showAll(r, snap) ? ` / 込み ${fmtPct(snap.highAll)}` : ''}`);
   return parts.join(' · ');
 }
 
@@ -91,10 +98,13 @@ function barsHtml(snap, r) {
   const order = [...snap.settings.keys()].reverse();
   const hi = snap.settings.indexOf(snap.highLabel);
   const cell = (probs, i) => `<span class="bar"><i style="width:${probs ? (probs[i] * 100).toFixed(1) : 0}%"></i><em>${probs ? fmtPct(probs[i]) : '—'}</em></span>`;
+  const both = showAll(r, snap);
   return `<section class="card">
-    <div class="card-title">設定の確からしさ（${esc(snap.highLabel)}以上: 自分 ${fmtPct(snap.highMine)} / 前任者込み ${fmtPct(snap.highAll)}）</div>
-    <div class="bars-head"><span></span><span>自分</span><span>前任者込み</span></div>
-    ${order.map(i => `<div class="bars-row ${hi >= 0 && i >= hi ? 'is-high' : ''}"><span class="bars-label">設定${esc(snap.settings[i])}</span>${cell(snap.mine, i)}${cell(snap.all, i)}</div>`).join('')}
+    <div class="card-title">設定の確からしさ（${esc(snap.highLabel)}以上: 自分 ${fmtPct(snap.highMine)}${both ? ` / 前任者込み ${fmtPct(snap.highAll)}` : ''}）</div>
+    <div class="bars${both ? '' : ' bars-one'}">
+    <div class="bars-head"><span></span><span>自分</span>${both ? '<span>前任者込み</span>' : ''}</div>
+    ${order.map(i => `<div class="bars-row ${hi >= 0 && i >= hi ? 'is-high' : ''}"><span class="bars-label">設定${esc(snap.settings[i])}</span>${cell(snap.mine, i)}${both ? cell(snap.all, i) : ''}</div>`).join('')}
+    </div>
     ${r.unofficialOff ? '<p class="note">未公表の値（判別ツールの目安・実戦値など）は入れずに計算しています（判別の画面の切り替え）</p>' : ''}
   </section>`;
 }
@@ -117,7 +127,7 @@ function inputsHtml(r, m) {
   return `<section class="card">
     <div class="card-title">入れた数字</div>
     ${row(`前任者の${L.startG}`, fmtInt(r.startG))}
-    ${row(`前任者の${L.prevBig} / ${L.prevReg}`, `${fmtInt(r.prevBig)} / ${fmtInt(r.prevReg)}`)}
+    ${J.usesPrev(m) || r.prevBig || r.prevReg ? row(`前任者の${L.prevBig} / ${L.prevReg}`, `${fmtInt(r.prevBig)} / ${fmtInt(r.prevReg)}`) : ''}
     ${row(L.totalG, fmtInt(r.totalG))}
     ${row(L.myG, fmtInt(myG))}
     ${allRows}

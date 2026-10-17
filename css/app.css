@@ -197,15 +197,23 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 /* ---------------------------------------------------------------- 判別 */
 .place { display: block; width: 100%; padding: 0 0 8px; background: none; border: 0; color: var(--text-dim); font-size: 13px; text-align: left; }
 .place::after { content: " ✎"; color: var(--text-faint); }
+/* 上に固定した欄。近似の設定（押すと先頭へ）と、シナリオ判別のある機種はそれを呼び出すボタン */
 .summary {
   position: sticky; top: var(--bar-h, 49px); z-index: 10;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; margin: 0 0 12px; padding: 8px 12px;
-  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius); text-align: left;
+  display: flex; gap: 8px; margin: 0 0 12px; padding: 8px 12px;
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius);
 }
+.sum-top { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; padding: 0; background: none; border: 0; text-align: left; }
+.sum-top.two { flex: 2; }   /* 自分・前任者込みの2列。シナリオのボタンを1列ぶんの幅に */
+.sum-sc { flex: 1; min-width: 0; padding: 2px 8px; text-align: left; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px; }
+.sum-sc .k { color: var(--accent); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum-sc:active { background: var(--surface-3); }
 .summary b { font-size: 22px; font-weight: 800; }
 /* 近似の設定の横に出す、その設定の確からしさ */
 .sum-p { margin-left: 6px; font-size: 13px; font-weight: 700; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .bars-head, .bars-row { display: grid; grid-template-columns: 52px 1fr 1fr; gap: 8px; align-items: center; }
+/* 自分だけの列（AT機。前任者込みを出さない） */
+.bars-one .bars-head, .bars-one .bars-row { grid-template-columns: 52px 1fr; }
 .bars-head { font-size: 12px; color: var(--text-dim); margin-bottom: 2px; }
 .bars-row { margin: 6px 0; }
 .bars-label { font-size: 13px; font-weight: 700; color: var(--text-dim); }

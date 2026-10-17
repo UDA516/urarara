@@ -155,6 +155,7 @@ export function readShare(text) {
   const fields = {};
   for (const k of FIELDS) {
     if ((k === 'startAllG' || k === 'totalAllG') && !all) continue;
+    if ((k === 'prevBig' || k === 'prevReg') && !J.usesPrev(m)) continue;   // AT機は前任者の G数だけ（2026-10-17）
     if (ok(x.fields[k])) fields[k] = x.fields[k];
   }
   // 項目は番号で引く。今の表に無い項目と、番号が重なって決められない項目は入れない
