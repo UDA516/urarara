@@ -361,16 +361,44 @@ function jugglerColumns(m) {
   return cols;
 }
 
+// 設定差の表のいちばん下の段: いちばん上の設定がいちばん下の設定の何倍出やすいか（2026-10-16 ユーザーの指示
+// 「設定1と6の倍率差を出す、倍率差が高いものは強調する」）。出にくくなる向きも同じ幅で目立たせる
+const RATIO_HI = 1.5;
+const RATIO_MID = 1.2;
+
+/** 列の倍率（{ text, cls }）。出玉率・BR比率は出さない。どちらかの設定で出ないもの（null）は「—」 */
+function ratioCell(m, c) {
+  if (c === 'payout' || c === 'br') return { text: '', cls: '' };
+  const v = colValues(m, c);
+  const lo = v?.[0], hi = v?.[v.length - 1];
+  if (!(lo > 0 && hi > 0)) return { text: '—', cls: '' };
+  const r = Number((lo / hi).toFixed(2));   // 1/N の N の比 ＝ 出やすさの比。画面に出す桁で比べる
+  const k = r >= 1 ? r : 1 / r;
+  return { text: `×${r.toFixed(2)}`, cls: k >= RATIO_HI ? 'r-hi' : k >= RATIO_MID ? 'r-mid' : '' };
+}
+
+/** 倍率の段の説明（設定差の表の下に出す） */
+export function ratioNote(m) {
+  const a = esc(m.settings[0]), b = esc(m.settings[m.settings.length - 1]);
+  return `<p class="note"><span class="mk r-hi">×</span>いちばん下の段（${a}→${b}）は、設定${b} が設定${a} の何倍出やすいか`
+    + `（1 より小さいものは設定${b} で出にくい）。${RATIO_HI}倍以上を濃く、${RATIO_MID}倍以上を薄く色付け</p>`;
+}
+
 /** 設定差の表（横に送れる枠ごと）。名前のある組（A タイプ）は、見出しを押すとたためる（data-fold は ui.js の
  *  rememberFolds で開け閉めを覚える鍵）。A タイプの表は列が少ないので幅を詰める */
 export function specTableHtml(m) {
+  const last = m.settings.length - 1;
   return specGroups(m).map(({ title, cols }) => {
     const head = `<tr><th>設定</th>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
     const body = m.settings.map((s, i) => `<tr><td>${esc(s)}</td>${cols.map(c => {
       const v = c.c === 'payout' ? m.table.payout[i] : colValues(m, c.c)[i];
       return `<td data-spec="${c.c}:${i}">${esc(c.text(v))}</td>`;
     }).join('')}</tr>`).join('');
-    const table = `<div class="spec-wrap"><table class="spec${isA(m) ? ' fit' : ''}"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    const ratio = `<tr class="ratio"><td>${esc(m.settings[0])}→${esc(m.settings[last])}</td>${cols.map(c => {
+      const r = ratioCell(m, c.c);
+      return `<td${r.cls ? ` class="${r.cls}"` : ''}>${esc(r.text)}</td>`;
+    }).join('')}</tr>`;
+    const table = `<div class="spec-wrap"><table class="spec${isA(m) ? ' fit' : ''}"><thead>${head}</thead><tbody>${body}${ratio}</tbody></table></div>`;
     return title
       ? `<details class="fold" data-fold="${esc(`spec:${title}`)}" open><summary class="fold-title">${esc(title)}</summary>${table}</details>`
       : table;

@@ -164,6 +164,11 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .chip { padding: 7px 12px; background: transparent; border: 1px solid var(--border-strong); border-radius: 999px; color: var(--text-dim); font-size: 13px; }
 .chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* 店舗の選択肢（店舗の枠のいちばん上。押すと入る。自由入力より先に出す。2026-10-16） */
+.store-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; margin: 6px 0 8px; }
+.store-pick button { height: 44px; padding: 0 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); color: var(--text); font-size: 15px; font-weight: 700; }
+.store-pick button[data-pick-store=""] { color: var(--text-dim); font-weight: 400; }
+.store-pick button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--surface-3); color: var(--text-dim); font-size: 11px; font-weight: 700; vertical-align: 1px; }
 .badge-play { background: var(--accent-soft); color: var(--accent); }
 .seg { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
@@ -259,6 +264,11 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .spec th { background: var(--surface-3); font-weight: 700; }
 .spec td:first-child { background: var(--surface-2); font-weight: 700; }
 .mk-near { background: var(--accent-strong) !important; color: #fff; }
+/* 設定差の表のいちばん下の段（設定1→6 の倍率。2026-10-16）。近い設定の塗り（ピンク）と分けて橙で */
+.spec tr.ratio td { border-top: 2px solid var(--border-strong); color: var(--text-dim); }
+.spec tr.ratio td:first-child { font-weight: 400; }
+.spec .r-mid { color: var(--warn) !important; }
+.spec .r-hi, .mk.r-hi { background: var(--warn-soft); color: var(--warn) !important; font-weight: 700; }
 .mk { display: inline-block; margin: 0 4px 0 0; padding: 0 6px; border-radius: 4px; font-size: 11px; }
 
 .memo-sec { margin-bottom: 14px; }

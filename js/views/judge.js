@@ -73,24 +73,32 @@ async function pushRecent(id) {
 
 // ---------------------------------------------------------------- 店舗と台番号
 
-// 店舗は自由に入れる。公開するデータには店舗名を入れない（どこで打っているかが分かるため）。
-// 候補はこの端末の記録に残っている店舗だけから出す
+// 店舗は、データの選択肢（短い名前だけ。2026-10-16）を押して入れるのが先で、ほかは自由に入れる。
+// 場所の分かる店舗名は公開するデータに入れない（どこで打っているかが分かるため）。
+// 自由入力の候補はこの端末の記録に残っている店舗だけから出す（選択肢にあるものは除く）
 async function recentStores() {
-  const names = (await recAll()).map(r => (r.store || '').trim()).filter(Boolean);
+  const fixed = catalog.storeChoices();
+  const names = (await recAll()).map(r => (r.store || '').trim()).filter(x => x && !fixed.includes(x));
   return [...new Set(names)].slice(0, 8);
 }
 
 function placeHtml(recent) {
+  const fixed = catalog.storeChoices();
+  const pick = cls => x => `<button type="button" class="${cls}" data-pick-store="${esc(x)}">${esc(x || 'なし')}</button>`;
   return `<div class="sheet-label">店舗</div>
-    <input class="search" type="text" maxlength="40" placeholder="店舗名（入れなくてもよい）" autocomplete="off" enterkeyhint="done" data-store>
-    ${recent.length ? `<div class="chips">${[...recent, ''].map(x => `<button type="button" class="chip" data-pick-store="${esc(x)}">${esc(x || 'なし')}</button>`).join('')}</div>` : ''}
+    ${fixed.length ? `<div class="store-pick">${[...fixed, ''].map(pick('')).join('')}</div>` : ''}
+    <input class="search" type="text" maxlength="40" placeholder="${fixed.length ? 'ほかの店舗（自由入力）' : '店舗名（入れなくてもよい）'}" autocomplete="off" enterkeyhint="done" data-store>
+    ${recent.length ? `<div class="chips">${(fixed.length ? recent : [...recent, '']).map(pick('chip')).join('')}</div>` : ''}
     <div class="sheet-label">台番号</div>
     <button type="button" class="field" data-num><b data-numv></b></button>`;
 }
 
 function wirePlace(el, st, onChange) {
+  const fixed = catalog.storeChoices();
   const input = el.querySelector('[data-store]');
-  input.value = st.store || '';
+  // 選択肢で入れた店舗は自由入力の欄に出さない（押したボタンが光るので分かる）
+  const typed = name => (name && !fixed.includes(name) ? name : '');
+  input.value = typed(st.store);
   const paint = () => {
     el.querySelectorAll('[data-pick-store]').forEach(b => b.classList.toggle('on', b.dataset.pickStore === (st.store || '')));
     el.querySelector('[data-numv]').textContent = st.num ? `${st.num}番` : '未入力';
@@ -100,7 +108,7 @@ function wirePlace(el, st, onChange) {
   input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });   // 「完了」でキーボードを閉じる
   el.addEventListener('click', async e => {
     const sb = e.target.closest('[data-pick-store]');
-    if (sb) { st.store = sb.dataset.pickStore || null; input.value = st.store || ''; paint(); return; }
+    if (sb) { st.store = sb.dataset.pickStore || null; input.value = typed(st.store); paint(); return; }
     if (e.target.closest('[data-num]')) {
       const r = await openNumpad({ title: '台番号', value: Number(st.num) || 0, max: 5 });
       if (r) { st.num = r.empty || !r.value ? '' : String(r.value); paint(); }
@@ -358,7 +366,8 @@ async function renderPicker(root, ctx, cur) {
   const box = root.querySelector('[data-list]');
   const draw = q => {
     const rows = list.filter(m => matches(m, q));
-    box.innerHTML = rows.map(m => `<button type="button" class="row" data-id="${esc(m.id)}"><span class="row-main">${esc(m.name)}</span>${recent.includes(m.id) ? '<span class="row-sub">最近使った</span>' : ''}</button>`).join('')
+    // 最近始めた機種を上に並べるだけで、印は付けない（12機種まで付き、目印にならなかった。2026-10-16 ユーザーの指示）
+    box.innerHTML = rows.map(m => `<button type="button" class="row" data-id="${esc(m.id)}"><span class="row-main">${esc(m.name)}</span></button>`).join('')
       || `<p class="empty">${list.length ? '当てはまる機種がありません' : '判別できる機種がまだありません'}</p>`;
   };
   draw('');
@@ -560,7 +569,7 @@ function renderSession(root, s, ctx) {
       ${sections.map(sectionHtml).join('')}
       ${dashNote}
     </section>
-    ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}
+    ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}${J.ratioNote(m)}
       <p class="note"><span class="mk mk-near">塗り</span>近い設定。${esc(withPrevText)}は前任者と自分を合わせた値、ほかの列は自分の値（${esc(L.myG)}と自分の回数${
         items.some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : ''}）で</p>`,
       J.specGroups(m).some(g => g.title))}
