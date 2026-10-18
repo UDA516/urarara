@@ -489,8 +489,18 @@ function renderSession(root, s, ctx) {
       + 'テンキーで C を押して決定すると「—」に戻ります。ボーナスは 0回 ＝ 引かなかった です</p>'
     : '';
   // 縦に長いので、見出しを押してたためる（ユーザーの指示 2026-10-08。A タイプで始め、ジャグラーも同じに）。
-  // 開け閉めは機種ごとに端末に覚える。ボーナスの組は、たたんでも回数が分かるように見出しに合計を出す
-  const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}" open>${head}${body}</details>`;
+  // はじめはたたんであり、開いた組を機種ごとに端末に覚える（2026-10-18）。ボーナスの組は、たたんでも回数が分かるように見出しに合計を出す
+  const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}">${head}${body}</details>`;
+  // 確からしさ・カウント・設定差の表のあいだを移るボタン（2026-10-18 ユーザーの指示「各小役のところから確率のところまで
+  // 移動するボタン」「逆も然り」「表からカウントのところまでも移動できる循環するような」）。どこからでもほかの2つへ移れる。
+  // 矢印は画面の上下の向きで、近いほうを先に。カウントへは、最後に触った組（開いていれば）へ戻る
+  const PLACES = [['prob', '確からしさ'], ['cnt', 'カウント'], ['spec', '設定差の表']];
+  const jumps = from => {
+    const at = PLACES.findIndex(([k]) => k === from);
+    const to = PLACES.map((p, i) => [...p, i]).filter(([k]) => k !== from).sort((a, b) => Math.abs(a[2] - at) - Math.abs(b[2] - at));
+    return `<div class="jumps">${to.map(([k, label, i]) =>
+      `<button type="button" class="jump" data-jump="${k}">${i < at ? '▲' : '▼'} ${label}</button>`).join('')}</div>`;
+  };
   // 組に添えた画像（終了画面など。機種ファイルの [[count]] の images）。見出しのすぐ下に「画像（N枚）」を出し、
   // 押すと小さく並べる（毎回たたんだ状態から。開いたときに中身を入れる）。並べたものを押すと全画面で見る
   const imagesHtml = sec => {
@@ -500,7 +510,7 @@ function renderSession(root, s, ctx) {
   const sectionHtml = (sec, k) => {
     const per = sec.items.find(it => PER[it.per])?.per;
     const unof = sec.items.some(it => it.unofficial);
-    const body = imagesHtml(sec) + sec.items.map(counter).join('')
+    const body = imagesHtml(sec) + sec.items.map(counter).join('') + jumps('cnt')
       + (unof ? '<p class="note excl" data-unof-off hidden>未公表の値を「入れない」にしているので、この組は計算に入れていません</p>' : '')
       + (per ? `<p class="note">右の％は、自分の ${PER[per]} の回数に対する割合です</p>` : '')
       + refNote(sec)
@@ -521,10 +531,10 @@ function renderSession(root, s, ctx) {
       <p class="note">未公表の値（判別ツールの目安・実戦値など）: ${unofSecs.map(t => `「${esc(t)}」`).join('・')}</p>
     </div>` : '';
   // 要素ごと・設定差の表のカード。中が組に分かれていれば（A タイプ）組ごとに、1つの表なら（ジャグラー。
-  // 並びは元の HTML のまま）カードの見出しでまるごとたたむ
-  const card = (key, title, body, grouped) => `<section class="card">${grouped
+  // 並びは元の HTML のまま）カードの見出しでまるごとたたむ。tail はたたむ中身の外（カードの下）に出すもの
+  const card = (key, title, body, grouped, tail = '') => `<section class="card" data-card="${esc(key)}">${grouped
     ? `<div class="card-title">${title}</div>${body}`
-    : fold(key, `<summary class="card-title">${title}</summary>`, body)}</section>`;
+    : fold(key, `<summary class="card-title">${title}</summary>`, body)}${tail}</section>`;
   // 要素ごとの表。行に組（sec）があれば組ごとの表にする。前任者込みの列は、その列のある組だけ
   const elTable = (rows, both) => `<table class="tbl"><thead><tr><th>要素</th><th>自分</th>${both ? '<th>前任者込み</th>' : ''}</tr></thead><tbody>
         ${rows.map(r => `<tr><td>${esc(r.label)}</td><td data-el="mine:${r.c}"${r.pct ? ' data-pct-el' : ''}></td>${both ? `<td ${r.both ? `data-el="all:${r.c}"` : ''}>${r.both ? '' : '—'}</td>` : ''}</tr>`).join('')}
@@ -560,8 +570,8 @@ function renderSession(root, s, ctx) {
       ${m.scenario ? `<button type="button" class="sum-sc" data-sc-open aria-label="${esc(m.scenario.label)}の判別を開く">
         <span class="k">${esc(m.scenario.label)} ›</span><b data-sc-sum>—</b><span class="sum-p" data-sc-sum-p></span></button>` : ''}
     </div>
-    <section class="card">
-      <div class="card-title">設定の確からしさ</div>
+    <section class="card" data-card="prob">
+      <div class="card-head"><div class="card-title">設定の確からしさ</div>${jumps('prob')}</div>
       <div class="bars${prev ? '' : ' bars-one'}">
       <div class="bars-head"><span></span>${kinds.map(k => `<span>${KIND_TEXT[k]}</span>`).join('')}</div>
       ${order.map(i => `<div class="bars-row ${i >= hi ? 'is-high' : ''}">
@@ -585,7 +595,7 @@ function renderSession(root, s, ctx) {
         ? `<div class="fields2">${field('startG', esc(L.startG))}${field('startAllG', esc(L.startAllG))}${field('prevBig', esc(L.prevBig))}${field('prevReg', esc(L.prevReg))}</div>`
         : `<div class="fields3">${field('startG', esc(L.startG))}${field('prevBig', esc(L.prevBig))}${field('prevReg', esc(L.prevReg))}</div>`}
     </section>
-    <section class="card">
+    <section class="card" data-card="cnt">
       <div class="card-title">自分</div>
       <div class="fields2">${field('totalG', esc(L.totalG))}<div class="field static"><span class="k">${esc(L.myG)}</span><b data-v="myG"></b></div>
         ${L.totalAllG ? `${field('totalAllG', esc(L.totalAllG))}<div class="field static"><span class="k">${esc(L.myAllG)}</span><b data-v="myAllG"></b></div>` : ''}</div>
@@ -594,7 +604,7 @@ function renderSession(root, s, ctx) {
     </section>
     ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}${J.ratioNote(m)}
       <p class="note"><span class="mk mk-near">塗り</span>近い設定。${markNote}</p>`,
-      J.specGroups(m).some(g => g.title))}
+      J.specGroups(m).some(g => g.title), jumps('spec'))}
     <div class="actions">
       <button type="button" class="btn btn-block" data-memo></button>
       <button type="button" class="btn btn-accent btn-block" data-end>終了して記録へ</button>
@@ -608,6 +618,15 @@ function renderSession(root, s, ctx) {
 
   const $ = sel => root.querySelector(sel);
   const setText = (sel, text) => { const el = $(sel); if (el) el.textContent = text; };
+
+  // 移るボタンの行き先。上に固定した欄の下に見出しが来るように送る
+  let lastCnt = null;   // 最後に触ったカウンターの組
+  const jumpTo = to => {
+    const el = to === 'cnt' ? (lastCnt?.open ? lastCnt : $('[data-card="cnt"]')) : $(`[data-card="${to === 'spec' ? 'spec:all' : to}"]`);
+    const sum = $('.summary');
+    const off = parseFloat(getComputedStyle(sum).top) + sum.offsetHeight + 8;
+    window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - off), behavior: 'smooth' });
+  };
 
   function update() {
     const myG = J.myGames(s);
@@ -746,7 +765,11 @@ function renderSession(root, s, ctx) {
   root.addEventListener('click', async e => {
     const t = e.target;
     let b;
-    if (m.scenario && t.closest('[data-sc-open]')) {
+    const g = t.closest('details[data-fold^="cnt:"]');
+    if (g) lastCnt = g;
+    if ((b = t.closest('[data-jump]'))) {
+      jumpTo(b.dataset.jump);
+    } else if (m.scenario && t.closest('[data-sc-open]')) {
       SC.openPanel(m, s, () => { save(); update(); });
     } else if ((b = t.closest('[data-inc]')) || (b = t.closest('[data-dec]'))) {
       // 「—」から＋で1（数え始め）。「—」は−で変えない

@@ -103,21 +103,25 @@ export function confirmDialog(message, buttons) {
   });
 }
 
-const FOLDS = 'slot-memo.folds';   // たたんだ組（{ scope: [data-fold の値…] }）。端末ごとの好みなので localStorage
+// 開いた組（{ scope: [data-fold の値…] }）。端末ごとの好みなので localStorage。はじめは全部たたんでおく
+// （2026-10-18 ユーザーの指示「最初は閉じて置く」。前は全部開いていて、たたんだ組を 'slot-memo.folds' に覚えていた）
+const FOLDS = 'slot-memo.folds-open';
+try { localStorage.removeItem('slot-memo.folds'); } catch { /* 消せなくても動く */ }
 const readFolds = () => { try { return JSON.parse(localStorage.getItem(FOLDS)) || {}; } catch { return {}; } };
 
-/** たためる組（<details data-fold="…" open>）の開け閉めを、scope（画面と機種など）ごとに覚えて戻す */
+/** たためる組（<details data-fold="…">）の開け閉めを、scope（画面と機種など）ごとに覚えて戻す。開いたことのない組はたたむ */
 export function rememberFolds(root, scope) {
-  const closed = new Set(readFolds()[scope] || []);
-  root.querySelectorAll('details[data-fold]').forEach(d => { d.open = !closed.has(d.dataset.fold); });
+  const opened = new Set(readFolds()[scope] || []);
+  root.querySelectorAll('details[data-fold]').forEach(d => { d.open = opened.has(d.dataset.fold); });
   // toggle は親へ伝わらないので、捕まえる側で受ける
   root.addEventListener('toggle', e => {
     const d = e.target;
     if (!(d instanceof HTMLDetailsElement) || !d.dataset.fold) return;
     const all = readFolds();
     const set = new Set(all[scope] || []);
-    if (d.open) set.delete(d.dataset.fold); else set.add(d.dataset.fold);
-    all[scope] = [...set];
+    if (set.has(d.dataset.fold) === d.open) return;   // 上で合わせたときの toggle（覚えたとおり）は書かない
+    if (d.open) set.add(d.dataset.fold); else set.delete(d.dataset.fold);
+    if (set.size) all[scope] = [...set]; else delete all[scope];
     try { localStorage.setItem(FOLDS, JSON.stringify(all)); } catch { /* 覚えられなくても動く */ }
   }, true);
 }
