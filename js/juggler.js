@@ -376,10 +376,14 @@ function jugglerColumns(m) {
 const RATIO_HI = 1.5;
 const RATIO_MID = 1.2;
 
-/** 列の倍率（{ text, cls }）。出玉率・BR比率は出さない。どちらかの設定で出ないもの（null）は「—」 */
+/** 列の倍率（{ text, cls }）。出玉率・BR比率は出さない */
 function ratioCell(m, c) {
   if (c === 'payout' || c === 'br') return { text: '', cls: '' };
-  const v = colValues(m, c);
+  return ratioOf(colValues(m, c));
+}
+
+/** 設定ごとの 1/N の N の並び（v）の倍率。どちらかの設定で出ないもの（null）は「—」 */
+function ratioOf(v) {
   const lo = v?.[0], hi = v?.[v.length - 1];
   if (!(lo > 0 && hi > 0)) return { text: '—', cls: '' };
   const r = Number((lo / hi).toFixed(2));   // 1/N の N の比 ＝ 出やすさの比。画面に出す桁で比べる
@@ -397,21 +401,43 @@ export function ratioNote(m) {
 /** 設定差の表（横に送れる枠ごと）。名前のある組（A タイプ）は、見出しを押すとたためる（data-fold は ui.js の
  *  rememberFolds で開け閉めを覚える鍵）。A タイプの表は列が少ないので幅を詰める */
 export function specTableHtml(m) {
-  const last = m.settings.length - 1;
   return specGroups(m).map(({ title, cols }) => {
     const head = `<tr><th>設定</th>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
     const body = m.settings.map((s, i) => `<tr><td>${esc(s)}</td>${cols.map(c => {
       const v = c.c === 'payout' ? m.table.payout[i] : colValues(m, c.c)[i];
       return `<td data-spec="${c.c}:${i}">${esc(c.text(v))}</td>`;
     }).join('')}</tr>`).join('');
-    const ratio = `<tr class="ratio"><td>${esc(m.settings[0])}→${esc(m.settings[last])}</td>${cols.map(c => {
-      const r = ratioCell(m, c.c);
-      return `<td${r.cls ? ` class="${r.cls}"` : ''}>${esc(r.text)}</td>`;
-    }).join('')}</tr>`;
+    const ratio = ratioRow(m, cols.map(c => ratioCell(m, c.c)));
     const table = `<div class="spec-wrap"><table class="spec${isA(m) ? ' fit' : ''}"><thead>${head}</thead><tbody>${body}${ratio}</tbody></table></div>`;
     return title
       ? `<details class="fold" data-fold="${esc(`spec:${title}`)}" open><summary class="fold-title">${esc(title)}</summary>${table}</details>`
       : table;
+  }).join('');
+}
+
+/** 設定差の表のいちばん下の倍率の段（cells は列ごとの { text, cls }） */
+function ratioRow(m, cells) {
+  return `<tr class="ratio"><td>${esc(m.settings[0])}→${esc(m.settings[m.settings.length - 1])}</td>${cells.map(r =>
+    `<td${r.cls ? ` class="${r.cls}"` : ''}>${esc(r.text)}</td>`).join('')}</tr>`;
+}
+
+/**
+ * 表示だけの内訳（機種ファイルの [[breakdown]]）のカード。判別の計算に半分ずつ混ぜた値の、混ぜる前の解析の値を
+ * 項目ごとに見せるだけで、数える欄・塗り・確からしさ・機械割には使わない（2026-10-20 ユーザーの指示
+ * 「スペック表では正確な値をそれぞれ出しておいてください」）。数字は表の中でいちばん多い小数の桁にそろえる。
+ * 見出し・説明の \n は改行。列が少ないので A タイプの表と同じく幅を詰める（スマホで横に送らずに収まる）
+ */
+export function breakdownHtml(m) {
+  const br = s => esc(s).replace(/\n/g, '<br>');
+  return (m.breakdown || []).map(b => {
+    const digits = Math.max(0, ...b.cols.flatMap(c => c.values.map(v => (String(v).split('.')[1] || '').length)));
+    const head = `<tr><th>設定</th>${b.cols.map(c => `<th>${br(c.label)}</th>`).join('')}</tr>`;
+    const body = m.settings.map((s, i) => `<tr><td>${esc(s)}</td>${b.cols.map(c =>
+      `<td>${c.values[i].toFixed(digits)}</td>`).join('')}</tr>`).join('');
+    const ratio = ratioRow(m, b.cols.map(c => ratioOf(c.values)));
+    return `<section class="card"><div class="card-title">${esc(b.title)}</div>`
+      + `<div class="spec-wrap"><table class="spec fit"><thead>${head}</thead><tbody>${body}${ratio}</tbody></table></div>`
+      + `${b.note ? `<p class="note">${br(b.note)}</p>` : ''}</section>`;
   }).join('');
 }
 
@@ -431,20 +457,32 @@ export function specMarks(m, meas) {
 const roleSum = list => (list || []).reduce((a, o) => a + o.pay / o.prob, 0);
 
 /**
- * 設定ごとの機械割（%）を、表の小役とボーナスの払い出しから出す（1Gあたりの払い出し ÷ 3枚）。
- *   チェリー狙い … リプレイ・ぶどう・チェリー（合算。重複のボーナスのときも払い出す）・BIG・REG（1回の枚数）
- *   完全攻略     … 上に、完全攻略で取る小役（payout_model.skill。ベル・ピエロ）を足す
- * 照合した表の「チェリー狙い」「フル攻略」と 0.1% ほどで合う出し方（2026-10-07）。公表値は数え方が違い、これより低い。
+ * 設定ごとの機械割（%）を、表の小役とボーナスの払い出しから出す（払い出し ÷ 投入。通常時1Gあたりで数える）。
+ *   投入         … 通常時の 3枚 ＋ BIG・REG 中の投入（big_in・reg_in）
+ *   チェリー狙い … 払い出しは リプレイ・ぶどう・チェリー（合算。重複のボーナスのときも払い出す）・
+ *                  BIG・REG（差枚 big_net・reg_net にボーナス中の投入を足した、1回の払い出し）
+ *   完全攻略     … 払い出しに、完全攻略で取る小役（payout_model.skill。ベル・ピエロ）を足す
+ * 2024年からの解析記事の表（4機種）と 0.05% 以内で合う出し方（2026-10-20）。2023年までの表はボーナス中の投入を
+ * 分母に入れず（差枚 ÷ 3枚）、100% から離れるほどこれより大きい。公表値は数え方が違い、これより低い。
  * 払い出しの値が足りなければ null。skill が無ければ full だけ null
  */
 export function payoutRates(m) {
   const pm = m.payoutModel || {};
-  if (!(pm.big_net > 0 && pm.reg_net > 0 && pm.replay > 0 && pm.cherry_pay > 0 && has(m, 'grape') && has(m, 'cherry'))) return null;
-  const aim = m.settings.map((_, i) => ((pm.replay_pay ?? 3) / pm.replay + (pm.grape_pay ?? 8) / m.table.grape[i]
-    + pm.cherry_pay / m.table.cherry[i] + pm.big_net / m.table.big[i] + pm.reg_net / m.table.reg[i]
-    + roleSum(pm.others)) / 3 * 100);
-  const skill = roleSum(pm.skill) / 3 * 100;
-  return { aim, full: pm.skill?.length ? aim.map(v => v + skill) : null };
+  if (!(pm.big_net > 0 && pm.reg_net > 0 && pm.big_in > 0 && pm.reg_in > 0 && pm.replay > 0 && pm.cherry_pay > 0
+    && has(m, 'grape') && has(m, 'cherry'))) return null;
+  const rows = m.settings.map((_, i) => {
+    const big = 1 / m.table.big[i], reg = 1 / m.table.reg[i];
+    return {
+      out: (pm.replay_pay ?? 3) / pm.replay + (pm.grape_pay ?? 8) / m.table.grape[i] + pm.cherry_pay / m.table.cherry[i]
+        + (pm.big_net + pm.big_in) * big + (pm.reg_net + pm.reg_in) * reg + roleSum(pm.others),
+      bet: 3 + pm.big_in * big + pm.reg_in * reg,
+    };
+  });
+  const skill = roleSum(pm.skill);
+  return {
+    aim: rows.map(r => r.out / r.bet * 100),
+    full: pm.skill?.length ? rows.map(r => (r.out + skill) / r.bet * 100) : null,
+  };
 }
 
 /** 機械割の表（公表値・チェリー狙い・完全攻略）と、出し方の断り。出せるものが無ければ空。A タイプは atype.js */
@@ -459,9 +497,10 @@ export function payoutHtml(m) {
     + `<td>${pct(r?.aim[i])}</td><td>${pct(r?.full?.[i])}</td></tr>`).join('');
   const notes = [];
   if (r) {
-    const pays = [`BIG ${pm.big_net}枚`, `REG ${pm.reg_net}枚`, `ぶどう ${pm.grape_pay ?? 8}枚`,
-      `チェリー ${pm.cherry_pay}枚`, `リプレイ ${pm.replay_pay ?? 3}枚`].join('・');
-    notes.push(`チェリー狙い・完全攻略は、表の小役とボーナスから出した計算値です（1Gあたりの払い出し ÷ 3枚。${pays}）`);
+    const pays = [`BIG ${pm.big_net + pm.big_in}枚（投入 ${pm.big_in}枚）`, `REG ${pm.reg_net + pm.reg_in}枚（投入 ${pm.reg_in}枚）`,
+      `ぶどう ${pm.grape_pay ?? 8}枚`, `チェリー ${pm.cherry_pay}枚`, `リプレイ ${pm.replay_pay ?? 3}枚`].join('・');
+    notes.push(`チェリー狙い・完全攻略は、表の小役とボーナスから出した計算値です（払い出し ÷ 投入。投入は通常時の3枚と`
+      + `ボーナス中の分。${pays}）`);
     notes.push(pm.skill?.length
       ? `完全攻略は ${pm.skill.map(o => `${esc(o.label)}（1/${o.prob}・${o.pay}枚）`).join('・')}も取った場合です`
       : '完全攻略で取る小役（ベル・ピエロ）の確率が無いので、完全攻略は出せません');
