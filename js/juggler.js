@@ -188,11 +188,13 @@ export function excluded(m, s) {
 /** 設定ごとの確からしさ（合計1）。withPrev で前任者の BIG・REG も入れる（AT機は入れない。usesPrev）。
  *  小役は「—」（数えていない）なら入れない（0回は「引かなかった」として入れる）。
  *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL）。
- *  回数を計算に入れないボーナスの組（ref）は、内訳の割合だけ（A.refLL）。前任者のその回数も入れない */
+ *  回数を計算に入れないボーナスの組（ref）は、内訳の割合だけ（A.refLL）。前任者のその回数も入れない。
+ *  1回ごとにどれか1つの組（excl）の小役も、組でまとめて（A.exclusiveLL。多項分布） */
 export function posterior(m, s, withPrev) {
-  const items = myItems(m).filter(it => isProb(it) && !it.split && !it.ref && !unofficialOff(s, it)
+  const items = myItems(m).filter(it => isProb(it) && !it.split && !it.ref && !it.excl && !unofficialOff(s, it)
     && !(optional(it) && A.partCount(s.counts, it.id) == null));
   const refs = isA(m) ? A.refGroups(m) : [];
+  const excls = isA(m) ? A.exclusives(m).filter(g => !g.parts.some(it => unofficialOff(s, it))) : [];
   const prevBig = !(isA(m) && A.refKind(m, 'big'));
   const prevReg = !(isA(m) && A.refKind(m, 'reg'));
   const sps = splits(m);
@@ -207,6 +209,7 @@ export function posterior(m, s, withPrev) {
     }
     if (myG > 0) for (const sp of sps) ll += A.splitLL(m, sp, s.counts, myG, i);
     for (const g of refs) ll += A.refLL(m, g, s.counts, i);
+    for (const g of excls) ll += A.exclusiveLL(m, g, s.counts, i);
     if (withPrev && usesPrev(m) && s.startG > 0) {
       if (prevBig) ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]);
       if (prevReg) ll += binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
@@ -302,6 +305,8 @@ export function measures(m, s) {
       mine[it.id] = k == null ? null : den(st.myG, k);
     }
   }
+  // 1回ごとにどれか1つの組の、数えずに出す行（足した行・分母の残りの行）は、その組の分母の欄に対して
+  for (const it of myItems(m).filter(x => x.group === 'derived')) mine[it.id] = den(s.counts?.[it.per] || 0, countOf(m, it, s.counts));
   const all = {
     big: den(st.totalG, st.all.big), reg: den(st.totalG, st.all.reg), combo: den(st.totalG, st.all.big + st.all.reg),
     br: ratio(st.all.big, st.all.reg),

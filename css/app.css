@@ -211,6 +211,7 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .summary b { font-size: 22px; font-weight: 800; }
 /* 近似の設定の横に出す、その設定の確からしさ */
 .sum-p { margin-left: 6px; font-size: 13px; font-weight: 700; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.sum-sc .sum-p { white-space: nowrap; }   /* 「最大6周期目」などが途中で折れないよう、収まらなければ丸ごと次の行へ */
 .bars-head, .bars-row { display: grid; grid-template-columns: 52px 1fr 1fr; gap: 8px; align-items: center; }
 /* 自分だけの列（AT機。前任者込みを出さない） */
 .bars-one .bars-head, .bars-one .bars-row { grid-template-columns: 52px 1fr; }
@@ -308,6 +309,9 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .sc-sub { margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--text-dim); }
 .sc-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
 .chip:disabled { opacity: 0.4; }
+/* モード判別（mode.js）。シナリオ判別の表（sc-tbl）を使い、天井の印は橙、もう無い印は線を引いて薄く */
+.md-tbl td.md-top { color: var(--warn); font-weight: 700; }
+.md-tbl td.md-x { opacity: 0.3; text-decoration: line-through; }
 
 .spec-wrap { margin: 0 -12px; padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .spec { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; text-align: center; }

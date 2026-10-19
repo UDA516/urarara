@@ -8,6 +8,7 @@ import { esc, fmtInt, fmtPct, fmtDate, fmtTime, dayKey, toast, openSheet, confir
 import { navigate } from '../nav.js';
 import { askPlace, editMemo, finishSession, currentSession, placeText, fieldLabels } from './judge.js';
 import { recordRows } from '../scenario.js';
+import { recordRows as modeRows } from '../mode.js';
 
 const STATUS = { playing: '判別中', done: '終了', memo: 'メモ' };
 const isPending = r => !r.exportedAt || r.updatedAt > r.exportedAt;
@@ -132,7 +133,7 @@ function inputsHtml(r, m) {
     ${row(L.myG, fmtInt(myG))}
     ${allRows}
     ${items.filter(it => !it.hidden).map(it => { const k = J.countOf(m, it, r.counts); return row(it.label, k == null ? '—' : fmtInt(k)); }).join('')}
-    ${recordRows(m, r).map(([k, v]) => row(k, v)).join('')}
+    ${[...recordRows(m, r), ...modeRows(m, r)].map(([k, v]) => row(k, v)).join('')}
     <p class="note">データの版 ${esc(catalog.versionLabel(r.dataVersion))}${r.sharedAt
       ? `。共有された値（${fmtDate(r.sharedAt)} ${fmtTime(r.sharedAt)}）から始めた判別です` : ''}</p>
   </section>`;

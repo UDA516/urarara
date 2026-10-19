@@ -11,6 +11,7 @@ import { matches } from '../search.js';
 import { navigate } from '../nav.js';
 import { makeShare, readShare } from '../share.js';
 import * as SC from '../scenario.js';
+import * as MD from '../mode.js';
 
 /** 前任者・自分の欄の名前。BIG・REG の場所に数えるものと G数の呼び名は機種ファイルの [names]
  *  （AT機は「ST」「CZ」「通常G」など。2026-10-13）。key は記録の項目名（startG・prevBig・prevReg・totalG のまま）。
@@ -407,12 +408,13 @@ function renderSession(root, s, ctx) {
   // A タイプの G数の欄（ボーナスゲーム中のG数など。その組の小役の分母）は、カウンターでなくテンキーで入れる欄。
   // 後から内訳が分かる組: 合算と見られる種別はカウンター（合算は種別が全部分かると種別の和になり、±を隠す。update）。
   // 単独では見られない種別（hidden）は欄を出さず、まとめた行（rest）は数える欄ではなく 合算 − 分かった種別 を出す行。
+  // 1回ごとにどれか1つの組の、足した行・分母の残りの行（derived）も、数える欄ではなく出すだけの行。
   // 小役・合算は、数字が入るまで「—」（数えていない。計算に入れない）。
   // G数の欄でも、ゾーンに届いた回数・レア役の回数のようなもの（counter）は ± で数える（AT機。2026-10-13）
   const counter = it => (it.group === 'games' && !it.counter
     ? `<button type="button" class="field c-games" data-edit-count="${it.id}"><span class="k">${esc(it.short)}</span><b data-count="${it.id}"></b></button>`
     : it.hidden ? ''
-    : it.group === 'rest'
+    : it.group === 'rest' || it.group === 'derived'
     ? `<div class="counter c-sum">
       <span class="c-name">${esc(it.short)}</span><span></span>
       <span class="c-val" data-count="${it.id}"></span><span></span>
@@ -462,6 +464,15 @@ function renderSession(root, s, ctx) {
     const roles = rolesOf(it.id);
     return `<p class="note">右の％は「${esc(it.short)}」に対する割合です${roles.length ? `。「${esc(it.short)}」を＋で数えると、`
       + `${roles.map(x => `「${esc(x.short)}」`).join('・')}も 0回から数え始めます（「—」でなくなる）` : ''}</p>`;
+  };
+  // 1回ごとにどれか1つの組（exclusive。2026-10-19）: 項目は分母の1回ごとにどれか1つなので、計算は組でまとめた多項分布。出すだけの行の中身も書く
+  const exclNote = it => {
+    const roles = rolesOf(it.id).map(x => `「${esc(x.short)}」`);
+    const name = id => `「${esc(items.find(x => x.id === id)?.short ?? '')}」`;
+    const rows = items.filter(x => x.group === 'derived' && x.per === it.id).map(x => `「${esc(x.short)}」は${x.rest
+      ? `「${esc(it.short)}」から${x.parts.map(name).join('・')}を引いた残り` : x.parts.map(name).join('＋')}`);
+    return `<p class="note">「${esc(it.short)}」の1回ごとに、${roles.join('・')}のどれか1つを数えます（どれでもないこともある）。`
+      + `計算は組でまとめた多項分布です${rows.length ? `。${rows.join('、')}です（数える欄ではありません）` : ''}</p>`;
   };
   // 分母の欄のある組の示唆・数えるだけの項目は、その分母に対する割合を出す（2026-10-15。ボイスの割合などを、
   // 設定ごとの値が無いので計算には入れず、メモの実戦値と見比べる）
@@ -515,6 +526,7 @@ function renderSession(root, s, ctx) {
       + (per ? `<p class="note">右の％は、自分の ${PER[per]} の回数に対する割合です</p>` : '')
       + refNote(sec)
       + sec.items.filter(it => it.group === 'games' && it.counter).map(countNote).join('')
+      + sec.items.filter(it => it.group === 'games' && it.excl).map(exclNote).join('')
       + sec.items.filter(it => it.of).map(atNote).join('')
       + sec.items.filter(it => it.group === 'bonus' && J.never(m, it).length).map(neverNote).join('')
       + sec.items.filter(it => it.group === 'hint').map(hintNote).join('')
@@ -569,6 +581,8 @@ function renderSession(root, s, ctx) {
       </button>
       ${m.scenario ? `<button type="button" class="sum-sc" data-sc-open aria-label="${esc(m.scenario.label)}の判別を開く">
         <span class="k">${esc(m.scenario.label)} ›</span><b data-sc-sum>—</b><span class="sum-p" data-sc-sum-p></span></button>` : ''}
+      ${m.mode ? `<button type="button" class="sum-sc" data-md-open aria-label="${esc(m.mode.label)}の判別を開く">
+        <span class="k">${esc(m.mode.label)} ›</span><b data-md-sum>—</b><span class="sum-p" data-md-sum-p></span></button>` : ''}
     </div>
     <section class="card" data-card="prob">
       <div class="card-head"><div class="card-title">設定の確からしさ</div>${jumps('prob')}</div>
@@ -682,6 +696,8 @@ function renderSession(root, s, ctx) {
     const rateText = (it, k) => {
       if (PER[it.per]) { const own = meas.st.own[it.per]; return own > 0 ? fmtPct(k / own) : '—'; }
       if (it.group === 'sum' || it.group === 'rest') return fmtDen(meas.mine[it.id]);
+      // 1回ごとにどれか1つの組の、出すだけの行は、組の分母の欄に対する %
+      if (it.group === 'derived') { const g = s.counts[it.per] || 0; return g > 0 && k != null ? fmtPct(k / g) : '—'; }
       // per = "games" の組の ± で数える分母の欄は、自分の G数に対する 1/N（2026-10-17）
       if (it.group === 'games') return it.per === 'games' ? (myG > 0 && k > 0 ? fmtDen(myG / k) : '—') : '';
       if (it.group === 'hint' || it.group === 'tally') {
@@ -730,6 +746,12 @@ function renderSession(root, s, ctx) {
       setText('[data-sc-sum]', sc.v);
       setText('[data-sc-sum-p]', sc.sub);
     }
+    // モード判別（[mode] のある機種だけ。mode.js）。ボタンには次に当たりうるG数と、いちばん深いG数
+    if (m.mode) {
+      const md = MD.summary(m, s);
+      setText('[data-md-sum]', md.v);
+      setText('[data-md-sum-p]', md.sub);
+    }
 
     $('[data-place]').textContent = `${placeText(s)} · ${fmtTime(s.startedAt)}から`;
     $('[data-memo]').textContent = s.memo ? 'メモ（あり）' : 'メモを書く';
@@ -771,6 +793,8 @@ function renderSession(root, s, ctx) {
       jumpTo(b.dataset.jump);
     } else if (m.scenario && t.closest('[data-sc-open]')) {
       SC.openPanel(m, s, () => { save(); update(); });
+    } else if (m.mode && t.closest('[data-md-open]')) {
+      MD.openPanel(m, s, () => { save(); update(); });
     } else if ((b = t.closest('[data-inc]')) || (b = t.closest('[data-dec]'))) {
       // 「—」から＋で1（数え始め）。「—」は−で変えない
       const id = b.dataset.inc || b.dataset.dec;

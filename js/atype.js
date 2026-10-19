@@ -37,7 +37,9 @@ export const mainTitle = m => (hasCombo(m) && !renamed(m) ? 'ボーナス' : `${
  *   自分の総G − 自分の通常G で数える）は確率を持ち、計算に入る。
  *   games（G数の欄）・hint（示唆。1回でも数えたら excludes の設定を外す）・tally（数えるだけ）は入らない。
  *   sum（合算）・rest（見えない種別をまとめた行）は、後から内訳が分かる組のもの。その組の小役（split を持つ。
- *   hidden は単独では見られない種別）と合わせて計算する（splitLL） */
+ *   hidden は単独では見られない種別）と合わせて計算する（splitLL）。
+ *   derived（数えずに、同じ組の項目から出す行。足した行と分母の残りの行）は、1回ごとにどれか1つの組（excl）のもの。
+ *   その組の小役は1つずつでなく組でまとめて計算する（exclusiveLL） */
 export const isProb = it => it.group === 'bonus' || it.group === 'role';
 
 /** 「—」（数えていない）を持てる項目。小役と合算は、数字が入るまで計算に入れない（入れば 0回も「引かなかった」として入れる）。
@@ -46,7 +48,7 @@ export const isProb = it => it.group === 'bonus' || it.group === 'role';
 export const optional = it => it.group === 'role' || it.group === 'sum';
 
 /** 表に確率の列がある項目（要素ごと・設定差の表に出せる）。合算・まとめた行も列を持つ */
-const hasCol = it => isProb(it) || it.group === 'sum' || it.group === 'rest';
+const hasCol = it => isProb(it) || it.group === 'sum' || it.group === 'rest' || it.group === 'derived';
 
 export const items = m => m.items || [];
 
@@ -143,6 +145,7 @@ export function splitState(sp, counts) {
 /** 項目の回数。合算は上の sum、まとめた行は見られる種別が全部分かったときの残り、種別は分かっているときだけ、
  *  ほかの小役は数字が入っているときだけ（「—」は null）。ボーナスなどは数えた回数（無ければ 0） */
 export function countOf(m, it, counts) {
+  if (it.group === 'derived') return derivedCount(it, counts);
   const sp = m && (it.group === 'sum' || it.group === 'rest' || it.split) ? splitOf(m, it.id) : null;
   if (!sp) return optional(it) ? partCount(counts, it.id) : counts?.[it.id] || 0;
   const st = splitState(sp, counts);
@@ -167,6 +170,50 @@ export function splitLL(m, sp, counts, games, i) {
   if (st.sum == null) return ll + Math.max(0, games - st.known) * Math.log1p(-pk);
   if (st.rest > 0 && pAll - pk > 1e-12) ll += st.rest * Math.log(pAll - pk);
   return ll + Math.max(0, games - st.sum) * Math.log1p(-pAll);
+}
+
+// ---------------------------------------------------------------- 1回ごとにどれか1つの組（機種ファイルの exclusive）
+// ± で数える分母の欄の1回ごとに、項目のどれか1つが起きる（どれも起きないこともある）組（2026-10-19）。ボーナス中の
+// 当たりの種類のように、資料が「分母のうち何%」で全部の種類を出しているもの。項目ごとの二項分布を足すと、外れ
+// （分母 − 回数）を項目ごとに数えるので多項分布と合わない。設定差の無い項目を数えても、設定どうしの比は変わらない
+
+/** 1回ごとにどれか1つの組。{ games: 分母の欄, parts: 確率のある項目 } の並び */
+export function exclusives(m) {
+  const list = items(m);
+  return list.filter(it => it.group === 'games' && it.excl).map(games => ({
+    games, parts: list.filter(it => it.group === 'role' && it.per === games.id),
+  }));
+}
+
+/**
+ * 1回ごとにどれか1つの組の対数尤度（設定 i）。分母 N の1回ごとに、項目のどれか1つか、どれでもないかの多項分布:
+ *   Σ 数えた項目 k·log p ＋（N − その和）·log（1 − 数えた項目の p の和）
+ * 「—」の項目は「どれでもない」に混ぜる（その項目を見ていないときの読み）。分母が 0 なら何も足さない
+ */
+export function exclusiveLL(m, g, counts, i) {
+  const n = counts?.[g.games.id] || 0;
+  if (!(n > 0)) return 0;
+  let ll = 0, k = 0, p = 0;
+  for (const it of g.parts) {
+    const c = partCount(counts, it.id);
+    if (c == null) continue;
+    const q = 1 / m.table[it.id][i];
+    if (c > 0) ll += c * Math.log(q);
+    k += c;
+    p += q;
+  }
+  return ll + Math.max(0, n - k) * Math.log1p(-p);
+}
+
+/** 数えずに、同じ組の項目から出す行の回数。足した行は項目の和、残りの行は 分母 − 項目の和（分母が 0 なら null）。
+ *  「—」の項目があれば null */
+export function derivedCount(it, counts) {
+  const k = it.parts.map(id => partCount(counts, id));
+  if (k.some(v => v == null)) return null;
+  const sum = k.reduce((a, b) => a + b, 0);
+  if (!it.rest) return sum;
+  const n = counts?.[it.per] || 0;
+  return n > 0 ? Math.max(0, n - sum) : null;
 }
 
 /** 要素ごとの表の行。合算・BIG・REG と、設定差のある項目（無いものはどの設定にも同じ近さで、出しても意味が無い）。
