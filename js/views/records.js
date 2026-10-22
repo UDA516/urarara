@@ -133,7 +133,7 @@ function inputsHtml(r, m) {
     ${row(L.myG, fmtInt(myG))}
     ${allRows}
     ${items.filter(it => !it.hidden).map(it => { const k = J.countOf(m, it, r.counts); return row(it.label, k == null ? '—' : fmtInt(k)); }).join('')}
-    ${[...recordRows(m, r), ...modeRows(m, r)].map(([k, v]) => row(k, v)).join('')}
+    ${[...recordRows(m, r, snapOf(r)?.mine), ...modeRows(m, r)].map(([k, v]) => row(k, v)).join('')}
     <p class="note">データの版 ${esc(catalog.versionLabel(r.dataVersion))}${r.sharedAt
       ? `。共有された値（${fmtDate(r.sharedAt)} ${fmtTime(r.sharedAt)}）から始めた判別です` : ''}</p>
   </section>`;

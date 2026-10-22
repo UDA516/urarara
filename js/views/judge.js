@@ -726,8 +726,15 @@ function renderSession(root, s, ctx) {
     sections.forEach((sec, k) => setText(`[data-fold-sum="${k}"]`,
       `計${sec.items.filter(it => it.group === 'bonus').reduce((a, it) => a + (s.counts[it.id] || 0), 0)}回`));
 
+    // シナリオ判別に入れたものの要素の行・上の欄のボタン・枠は、設定の確からしさ（自分）で重み付けしたシナリオの確からしさを出す
+    const ws = m.scenario ? pm ?? J.posterior(m, s, false) : null;
     root.querySelectorAll('[data-el]').forEach(td => {
       const [kind, c] = td.dataset.el.split(':');
+      if (c === SC.EL) {
+        const e = SC.elementText(m, s, ws);
+        td.innerHTML = e ? `${esc(e.v)}<small>設定${esc(e.near)}</small>` : '—';
+        return;
+      }
       const v = meas[kind][c];
       const near = J.nearest(m, c, v);
       // 割合（%）で書いた項目は % で（v は 1/N の N）
@@ -739,10 +746,10 @@ function renderSession(root, s, ctx) {
       idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add('mk-near'));
     }
 
-    // シナリオ判別（機種ファイルの [scenario] がある機種だけ。設定の確からしさとは別に出す。scenario.js）。
-    // 上の欄のボタンには次の回の成功期待度を出し、中身は押すと下から出す枠
+    // シナリオ判別（機種ファイルの [scenario] がある機種だけ。scenario.js。選ばれやすさが設定ごとに違う機種は、入れたものが
+    // 設定の確からしさにも入る）。上の欄のボタンには次の回の成功期待度を出し、中身は押すと下から出す枠
     if (m.scenario) {
-      const sc = SC.summary(m, s);
+      const sc = SC.summary(m, s, ws);
       setText('[data-sc-sum]', sc.v);
       setText('[data-sc-sum-p]', sc.sub);
     }
@@ -792,7 +799,7 @@ function renderSession(root, s, ctx) {
     if ((b = t.closest('[data-jump]'))) {
       jumpTo(b.dataset.jump);
     } else if (m.scenario && t.closest('[data-sc-open]')) {
-      SC.openPanel(m, s, () => { save(); update(); });
+      SC.openPanel(m, s, () => { save(); update(); }, () => J.posterior(m, s, false));
     } else if (m.mode && t.closest('[data-md-open]')) {
       MD.openPanel(m, s, () => { save(); update(); });
     } else if ((b = t.closest('[data-inc]')) || (b = t.closest('[data-dec]'))) {

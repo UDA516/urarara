@@ -13,9 +13,11 @@
 // 型で違うところ（要素の行・設定差の表の組・機械割）は atype.js。項目ごとに分母の G数を持てる（per）のと、
 // 示唆（1回でも数えたら設定を外す）・後から内訳が分かる組（合算と種別）があるのは A タイプだけ。
 // AT機（type = "at"）は A タイプと同じ通り道で、BIG・REG の場所に ST・CZ などを数える（名前は [names]）。
-// 回数を計算に入れないボーナスの組（ref。AT機の CZ）は、内訳の割合だけを入れ、前任者のその回数も入れない
+// 回数を計算に入れないボーナスの組（ref。AT機の CZ）は、内訳の割合だけを入れ、前任者のその回数も入れない。
+// シナリオの選ばれやすさが設定ごとに違う機種は、シナリオ判別に入れたものも入れる（scenario.js の settingLL。2026-10-22）
 import { esc } from './ui.js';
 import * as A from './atype.js';
+import * as SC from './scenario.js';
 
 export const LABEL = {
   big: 'BIG', reg: 'REG', t_big: '単独BIG', t_reg: '単独REG', c_big: 'チェリーBIG', c_reg: 'チェリーREG',
@@ -189,7 +191,8 @@ export function excluded(m, s) {
  *  小役は「—」（数えていない）なら入れない（0回は「引かなかった」として入れる）。
  *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL）。
  *  回数を計算に入れないボーナスの組（ref）は、内訳の割合だけ（A.refLL）。前任者のその回数も入れない。
- *  1回ごとにどれか1つの組（excl）の小役も、組でまとめて（A.exclusiveLL。多項分布） */
+ *  1回ごとにどれか1つの組（excl）の小役も、組でまとめて（A.exclusiveLL。多項分布）。
+ *  シナリオの選ばれやすさが設定ごとに違う機種は、シナリオ判別に入れたテーブル・示唆も（SC.settingLL。何も入れていなければ足さない） */
 export function posterior(m, s, withPrev) {
   const items = myItems(m).filter(it => isProb(it) && !it.split && !it.ref && !it.excl && !unofficialOff(s, it)
     && !(optional(it) && A.partCount(s.counts, it.id) == null));
@@ -200,6 +203,7 @@ export function posterior(m, s, withPrev) {
   const sps = splits(m);
   const myG = myGames(s);
   const out = excluded(m, s).idx;
+  const scLL = SC.settingLL(m, s);
   return normalize(m.settings.map((_, i) => {
     if (out.has(i)) return -Infinity;
     let ll = 0;
@@ -210,6 +214,7 @@ export function posterior(m, s, withPrev) {
     if (myG > 0) for (const sp of sps) ll += A.splitLL(m, sp, s.counts, myG, i);
     for (const g of refs) ll += A.refLL(m, g, s.counts, i);
     for (const g of excls) ll += A.exclusiveLL(m, g, s.counts, i);
+    if (scLL) ll += scLL[i];
     if (withPrev && usesPrev(m) && s.startG > 0) {
       if (prevBig) ll += binomLL(s.prevBig, s.startG, 1 / m.table.big[i]);
       if (prevReg) ll += binomLL(s.prevReg, s.startG, 1 / m.table.reg[i]);
@@ -314,9 +319,11 @@ export function measures(m, s) {
   return { st, mine, all };
 }
 
-/** 要素ごとの表の行（渡されたカウンターの重要度順に、BIG・REG と残りの内訳を足した） */
+/** 要素ごとの表の行（渡されたカウンターの重要度順に、BIG・REG と残りの内訳を足した）。A タイプ・AT機で、シナリオの選ばれやすさが
+ *  設定ごとに違う機種は、シナリオ判別に入れたものの行（c は SC.EL。中身は SC.elementText）をいちばん下に足す */
 export function elementRows(m) {
-  if (isA(m)) return A.elementRows(m);
+  if (isA(m)) return [...A.elementRows(m),
+    ...(SC.bySetting(m.scenario) ? [{ c: SC.EL, label: SC.elementLabel, both: false, sec: m.scenario.label }] : [])];
   const rows = [];
   const add = (c, label, both = false) => {
     if (c === 'combo' || c === 'big' || c === 'reg' || has(m, c)) rows.push({ c, label, both });

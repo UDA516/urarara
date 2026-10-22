@@ -1,7 +1,8 @@
 // シナリオ判別（2026-10-17）。AT の終わりなどで決まり直す「シナリオ」が CZ の何回目をどのレベルにするかを決め、
 // レベルごとに突入時に見えるもの（テーブル）を振り分ける機種で、見えたテーブルの並びからシナリオを絞り、
 // 次の回のレベル・テーブル・成功期待度の見込みを出す。機種の言葉は機種ファイルの [scenario] に書く（ここには書かない）。
-// 設定の確からしさには入れない（シナリオの選ばれやすさが設定ごとに出ていない機種のため。rate はどの設定でも同じと置く）
+// 選ばれやすさが1つ（rate。どの設定でも同じと置く）の機種は、設定の確からしさには入れない。設定ごとに違う機種（rates。2026-10-22）は、
+// 入れたものの設定ごとの確からしさ（Σ シナリオ 選ばれやすさ × 尤度）を設定の確からしさに掛ける（juggler.js の posterior から settingLL）
 import { esc, fmtPct, openSheet, confirmDialog } from './ui.js';
 
 /**
@@ -23,22 +24,26 @@ const byId = (list, id) => list.find(x => x.id === id);
 /** 入れた回の数の上限（いちばん長いシナリオの回数。それより先は無い） */
 export const maxRows = sc => Math.max(...sc.items.map(it => it.levels.length));
 
+/** 選ばれやすさが設定ごとに違うシナリオか（機種ファイルの rate を設定ごとの並びで書いたもの。2026-10-22） */
+export const bySetting = sc => Array.isArray(sc?.items?.[0]?.rates);
+
+/** 何か入れたか（回・示唆・次の回の示唆）。何も入れていなければ設定の確からしさに何も足さない */
+const entered = st => !!(st?.rows?.length || st?.hints?.length || st?.next?.length);
+
 /**
- * シナリオの確からしさと次の回の見込み。
+ * シナリオごとの重み（rate はシナリオの並びの選ばれやすさ）。
  *   シナリオ k の重み ＝ 選ばれやすさ × Π（その回のレベルでそのテーブルが選ばれる割合）
  *   テーブルが分からない回は失敗した回と読み、Σ テーブルの割合 ×（1 − 成功期待度）を掛ける（成功濃厚のレベルの回なら 0）。
  *   示唆に合わないシナリオ・その回のレベルが無いシナリオ（それより前に必ず当たる）は 0。
- * post は確からしさ（合計1。どれも 0 なら null）、n は次の回の添字（0 から）、level・table は次の回のレベル・テーブルの割合、
- * success は次の回の成功期待度
  */
-export function analyze(sc, st) {
+function weights(sc, st, rate) {
   const rows = st?.rows || [];
   const hints = (st?.hints || []).map(id => byId(sc.hints, id)).filter(Boolean);
   const next = (st?.next || []).map(id => byId(sc.nextHints, id)).filter(Boolean);
   const fail = sc.levels.map((_, L) => sc.tables.reduce((a, t) => a + t.p[L] * (1 - t.success), 0));
-  const w = sc.items.map((it, k) => {
+  return sc.items.map((it, k) => {
     if (hints.some(h => !h.allow.includes(k))) return 0;
-    let p = it.rate;
+    let p = rate[k];
     rows.forEach((r, j) => {
       const L = it.levels[j];
       if (L == null) { p = 0; return; }
@@ -50,6 +55,61 @@ export function analyze(sc, st) {
     if (next.length && (Ln == null || next.some(h => !h.levels.includes(Ln)))) p = 0;
     return p;
   });
+}
+
+/** 設定ごとのシナリオの重み（[設定][シナリオ]）と、その和（設定ごとの、入れたものの確からしさ）。bySetting の機種だけ */
+function perSetting(sc, st) {
+  const w = sc.items[0].rates.map((_, i) => weights(sc, st, sc.items.map(it => it.rates[i])));
+  return { w, z: w.map(row => row.reduce((a, b) => a + b, 0)) };
+}
+
+/**
+ * 設定の確からしさに足す対数尤度（設定ごと）。今のシナリオと前のシナリオ（決まり直すごとに選び直すので、本ごとに独立）の
+ * 「入れたものの確からしさ」の log を足す。選ばれやすさが1つの機種・何も入れていないときは null（何も足さない）。
+ * 入れたものに合うシナリオが無い本（入れ間違い）も足さない
+ */
+export function settingLL(m, s) {
+  const sc = m?.scenario;
+  const st = s?.scenario;
+  if (!bySetting(sc) || !st) return null;
+  let ll = null;
+  for (const x of [...(st.past || []), st]) {
+    if (!entered(x)) continue;
+    const { z } = perSetting(sc, x);
+    if (!z.some(v => v > 0)) continue;
+    ll ??= z.map(() => 0);
+    z.forEach((v, i) => { ll[i] += Math.log(v); });
+  }
+  return ll;
+}
+
+/** 入れたものだけで見た設定の確からしさ（どの設定も同じ割合と置く。合計1）。足すものが無ければ null */
+export function settingShare(m, s) {
+  const ll = settingLL(m, s);
+  if (!ll) return null;
+  const max = Math.max(...ll);
+  const w = ll.map(v => Math.exp(v - max));
+  const sum = w.reduce((a, b) => a + b, 0);
+  return w.map(v => v / sum);
+}
+
+/**
+ * シナリオの確からしさと次の回の見込み。シナリオ k の重みは weights。
+ * 選ばれやすさが設定ごとに違う機種は、設定 i ごとに重みを出して和 z_i で割り、設定の確からしさ ws（合計1）で足し合わせる
+ * （P(k) ＝ Σ_i ws_i × 重み_ik ÷ z_i。ws は入れたものも入った設定の確からしさ。無ければ、どの設定も同じ割合と置く）。
+ * post は確からしさ（合計1。どれも 0 なら null）、n は次の回の添字（0 から）、level・table は次の回のレベル・テーブルの割合、
+ * success は次の回の成功期待度
+ */
+export function analyze(sc, st, ws) {
+  const rows = st?.rows || [];
+  let w;
+  if (bySetting(sc)) {
+    const per = perSetting(sc, st);
+    const q = Array.isArray(ws) && ws.length === per.z.length ? ws : per.z;   // q ＝ z なら Σ_i 重み_ik（同じ割合と置いたもの）
+    w = sc.items.map((_, k) => per.w.reduce((a, row, i) => (per.z[i] > 0 ? a + q[i] * row[k] / per.z[i] : a), 0));
+  } else {
+    w = weights(sc, st, sc.items.map(it => it.rate));
+  }
   const total = w.reduce((a, b) => a + b, 0);
   const post = total > 0 ? w.map(v => v / total) : null;
   const n = rows.length;
@@ -71,25 +131,43 @@ const tableLabel = (sc, id) => (id == null ? '分からない' : byId(sc.tables,
 const hintLabels = (list, ids) => (ids || []).map(id => byId(list, id)?.label).filter(Boolean);
 
 /** 判別の画面の上に固定した欄のボタンに出すもの（{ v, sub }）。次の回の成功期待度と、何回目か。
- *  合うシナリオが無い・この先の回が無いときは v が「—」 */
-export function summary(m, s) {
+ *  合うシナリオが無い・この先の回が無いときは v が「—」。ws は設定の確からしさ（analyze） */
+export function summary(m, s, ws) {
   const sc = m.scenario;
-  const a = analyze(sc, s.scenario);
+  const a = analyze(sc, s.scenario, ws);
   if (!a.post) return { v: '—', sub: '合わない' };
   if (a.n >= maxRows(sc)) return { v: '—', sub: 'この先なし' };
   return { v: fmtPct(a.success), sub: `${sc.step}${a.n + 1}回目` };
 }
 
+/** 要素ごとの表の行の名前と、その行の目印（項目の id は英小文字から始まるので重ならない）。選ばれやすさが設定ごとに違う機種だけ */
+export const EL = '_sc';
+export const elementLabel = '入れた回・示唆';
+
+/** 要素ごとの表の行の中身 { v, near }。v は今のシナリオでいちばん確からしいもの（今のものに何も入れていなければ前のものの数）、
+ *  near は入れたものだけで見ていちばん確からしい設定（同じ確からしさは全部）。設定に何も足していなければ null */
+export function elementText(m, s, ws) {
+  const share = settingShare(m, s);
+  if (!share) return null;
+  const sc = m.scenario;
+  const st = s.scenario;
+  const v = entered(st) ? topText(sc, analyze(sc, st, ws).post) ?? '合わない' : `前の${sc.label}（${st.past.length}つ）`;
+  const max = Math.max(...share);
+  const near = share.map((_, i) => i).filter(i => Math.round(share[i] * 1000) === Math.round(max * 1000));
+  return { v, near: near.map(i => m.settings[i]).join('・') };
+}
+
 /** シナリオ判別の枠（下から出す）。判別の画面の上に固定した欄のボタンから、どこまで送っていても呼び出せる
- *  （2026-10-17 ユーザーの指示。前は画面の途中のカードだった）。直すたびに onChange（保存して画面を描き直す） */
-export function openPanel(m, s, onChange) {
+ *  （2026-10-17 ユーザーの指示。前は画面の途中のカードだった）。直すたびに onChange（保存して画面を描き直す）。
+ *  weights は今の設定の確からしさを返す関数（入れ直すたびに変わるので、そのつど呼ぶ） */
+export function openPanel(m, s, onChange, weights) {
   const sc = m.scenario;
   const sheet = openSheet(`<div class="sheet-title">${esc(sc.label)}の判別</div>${html(m)}
     <button type="button" class="btn btn-ghost btn-block" data-sc-close>閉じる</button>`);
-  update(sheet.el, m, s);
+  update(sheet.el, m, s, weights?.());
   sheet.el.addEventListener('click', async e => {
     if (e.target.closest('[data-sc-close]')) { sheet.close(); return; }
-    if (await click(e.target, m, s)) { onChange(); update(sheet.el, m, s); }
+    if (await click(e.target, m, s)) { onChange(); update(sheet.el, m, s, weights?.()); }
   });
 }
 
@@ -105,6 +183,7 @@ export function html(m) {
         `<td data-sc-cell="${j}" class="lv-${it.levels[j] ?? 'x'}">${it.levels[j] == null ? '' : esc(sc.levels[it.levels[j]])}</td>`).join('')}</tr>`).join('')}</tbody>
     </table></div>
     <p class="note">表の 1〜${cols.length} は${esc(sc.step)}の何回目か、中はその回のレベルです。枠の付いた列が次の回、薄い列は入れた回です</p>
+    ${bySetting(sc) ? '<p class="note" data-sc-set></p>' : ''}
     <div class="group-title">${esc(sc.step)}（${esc(sc.reset)}のあと）</div>
     <div class="sc-rows" data-sc-rows></div>
     ${sc.nextHints.length ? `<div class="sc-sub" data-sc-next-title></div>
@@ -115,15 +194,26 @@ export function html(m) {
     <p class="note" data-sc-past hidden></p>
     <p class="note">テーブルが分からない回（座る前の回など）も「分からない」で入れて、回の数を合わせます。分からない回は失敗した回として読みます
       （失敗しやすさはレベルで違うので少し効き、成功濃厚のレベルの回なら、そのシナリオは外れます）</p>
-    <p class="note">確からしさは、${esc(sc.label)}の選ばれやすさ（${esc(sc.rateNote)}）から出しています。設定の確からしさには入れていません</p>
+    <p class="note">${bySetting(sc)
+      ? `確からしさは、${esc(sc.label)}の選ばれやすさ（${esc(sc.rateNote)}）を、判別の設定の確からしさで重み付けして出しています。
+        入れたテーブル・示唆は、設定の確からしさにも入れています（前の${esc(sc.label)}のぶんも）`
+      : `確からしさは、${esc(sc.label)}の選ばれやすさ（${esc(sc.rateNote)}）から出しています。設定の確からしさには入れていません`}</p>
     ${sc.note ? `<p class="note">${esc(sc.note)}</p>` : ''}`;
 }
 
-/** 数字を入れ直す */
-export function update(root, m, s) {
+/** 数字を入れ直す。ws は設定の確からしさ（analyze） */
+export function update(root, m, s, ws) {
   const sc = m.scenario;
   const st = stateOf(s);
-  const a = analyze(sc, st);
+  const a = analyze(sc, st, ws);
+  // 入れたものだけで見た設定の確からしさ（設定の確からしさに掛けているもの）
+  const set = root.querySelector('[data-sc-set]');
+  if (set) {
+    const share = settingShare(m, s);
+    set.textContent = share
+      ? `入れたテーブル・示唆だけで見た設定（判別の設定の確からしさに入れています）: ${share.map((p, i) => `設定${m.settings[i]} ${fmtPct(p)}`).join('・')}`
+      : '入れたテーブル・示唆は、設定の確からしさにも入れます（まだ何も入れていません）';
+  }
   const max = maxRows(sc);
   const box = root.querySelector('[data-sc-next]');
   if (!box) return;
@@ -166,7 +256,7 @@ export function update(root, m, s) {
   const past = root.querySelector('[data-sc-past]');
   past.hidden = !st.past.length;
   past.textContent = st.past.length
-    ? `前の${sc.label}（${st.past.length}つ）: ${st.past.map((x, i) => `${i + 1}つ目 ${x.rows.length}回${topText(sc, analyze(sc, x).post) ? `（${topText(sc, analyze(sc, x).post)}）` : ''}`).join('・')}`
+    ? `前の${sc.label}（${st.past.length}つ）: ${st.past.map((x, i) => { const t = topText(sc, analyze(sc, x, ws).post); return `${i + 1}つ目 ${x.rows.length}回${t ? `（${t}）` : ''}`; }).join('・')}`
     : '';
 }
 
@@ -249,14 +339,14 @@ export async function click(t, m, s) {
   return false;
 }
 
-/** 記録の詳細の「入れた数字」に足す行（[ラベル, 値] の並び） */
-export function recordRows(m, r) {
+/** 記録の詳細の「入れた数字」に足す行（[ラベル, 値] の並び）。ws は記録の設定の確からしさ（自分。analyze） */
+export function recordRows(m, r, ws) {
   const sc = m?.scenario;
   const st = r.scenario;
   if (!sc || !st || !(st.rows?.length || st.past?.length || st.hints?.length)) return [];
   const line = x => (x.rows.length ? x.rows.map((row, j) => `${j + 1}:${tableLabel(sc, row.t)}`).join('・') : 'なし')
     + (x.hints?.length ? `（${hintLabels(sc.hints, x.hints).join('・')}）` : '');
-  const top = x => (x.rows.length || x.hints?.length ? topText(sc, analyze(sc, x).post) : null);   // 何も入れていなければ出さない
+  const top = x => (x.rows.length || x.hints?.length ? topText(sc, analyze(sc, x, ws).post) : null);   // 何も入れていなければ出さない
   return [
     [`${sc.label}（今）`, `${line(st)}${top(st) ? ` → ${top(st)}` : ''}`],
     ...(st.past || []).map((x, i) => [`前の${sc.label} ${i + 1}`, `${line(x)}${top(x) ? ` → ${top(x)}` : ''}`]),
