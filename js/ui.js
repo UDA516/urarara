@@ -230,8 +230,39 @@ export function imgGridHtml(list) {
     x.caption ? `<span class="img-cap">${esc(x.caption)}</span>` : ''}</button>`).join('')}</div>`;
 }
 
-/** 機種メモの本文。段落・「-」「・」の箇条書き・**太字**・画像の行（![説明](@id)。並んだ行は1つの一覧）だけを読む
- *  （中身は先に esc する） */
+/** 表の行（`| a | b |`）を並べたものを表にする。2行目が `| --- | ---: |` ならそれが見出しの区切り（`:` で右・中央ぞろえ）。
+ *  区切りが無ければ見出し無しの表。幅からはみ出すときは表だけ横に送れる。
+ *  区切りのセルの終わりに `+` を付けた列（`---:+`）は、円の値で塗る（マイナス＝灰・0〜+999＝淡い緑・+1000 以上＝濃いめの緑。
+ *  G数の帯と同じ色）。数でないセル（「－」など）は塗らない。塗る列がある表の下に凡例を出す */
+function tableHtml(lines, inline) {
+  const cells = l => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+  const rows = lines.map(cells);
+  const sep = rows[1] && rows[1].every(c => /^:?-{2,}:?\+?$/.test(c)) ? rows[1] : null;
+  const mark = i => (sep?.[i] || '').replace(/\+$/, '');
+  const align = i => {
+    const c = mark(i);
+    return c.endsWith(':') ? (c.startsWith(':') ? 'c' : 'r') : '';
+  };
+  const heat = i => /\+$/.test(sep?.[i] || '');
+  const level = c => {
+    const m = c.replace(/[,，\s]/g, '').replace(/[−－]/g, '-').match(/^[+-]?\d+(?:\.\d+)?/);
+    return !m ? '' : Number(m[0]) < 0 ? 'h0' : Number(m[0]) < 1000 ? 'h1' : 'h2';
+  };
+  // 数字だけの短いセルは折り返さない（「350／450」が途中で切れないように）
+  const cell = (tag, c, i, body) => {
+    const cls = [align(i), /^[0-9,.+−－～〜／/%G円pt ]{1,14}$/.test(c) ? 'n' : '', body && heat(i) ? level(c) : ''].filter(Boolean).join(' ');
+    return `<${tag}${cls ? ` class="${cls}"` : ''}>${inline(c)}</${tag}>`;
+  };
+  const row = (r, body) => `<tr>${r.map((c, i) => cell(body ? 'td' : 'th', c, i, body)).join('')}</tr>`;
+  const head = sep ? `<thead>${row(rows[0], false)}</thead>` : '';
+  const tbody = rows.slice(sep ? 2 : 0).map(r => row(r, true)).join('');
+  const legend = sep?.some((_, i) => heat(i))
+    ? '<div class="memo-legend"><span><i class="h0"></i>マイナス</span><span><i class="h1"></i>0〜+999円</span><span><i class="h2"></i>+1000円以上</span></div>' : '';
+  return `<div class="memo-tbl"><table>${head}<tbody>${tbody}</tbody></table></div>${legend}`;
+}
+
+/** 機種メモの本文。段落・「-」「・」の箇条書き・`|` の表・**太字**・画像の行（![説明](@id)。並んだ行は1つの一覧）だけを読む
+ *  （中身は先に esc する）。箇条書きの次の字下げした行はその項目の続き（**太字** で始まる行は改行して続ける） */
 export function md(text) {
   const out = [];
   let mode = null;
@@ -239,8 +270,8 @@ export function md(text) {
   const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   const flush = () => {
     if (buf.length) {
-      out.push(mode === 'ul' ? `<ul>${buf.map(x => `<li>${inline(x)}</li>`).join('')}</ul>`
-        : mode === 'img' ? imgGridHtml(buf) : `<p>${buf.map(inline).join('<br>')}</p>`);
+      out.push(mode === 'ul' ? `<ul>${buf.map(x => `<li>${x.split('\n').map(inline).join('<br>')}</li>`).join('')}</ul>`
+        : mode === 'img' ? imgGridHtml(buf) : mode === 'tbl' ? tableHtml(buf, inline) : `<p>${buf.map(inline).join('<br>')}</p>`);
     }
     buf = [];
     mode = null;
@@ -248,7 +279,12 @@ export function md(text) {
   for (const line of String(text || '').split('\n')) {
     const im = line.trim().match(/^!\[([^\]]*)\]\(@([0-9a-f]+)\)$/);
     const li = line.match(/^\s*(?:[-*]\s+|・\s*)(.*)$/);
-    if (im) { if (mode !== 'img') flush(); mode = 'img'; buf.push({ id: im[2], caption: im[1] }); }
+    if (line.trim().startsWith('|')) { if (mode !== 'tbl') flush(); mode = 'tbl'; buf.push(line); }
+    else if (im) { if (mode !== 'img') flush(); mode = 'img'; buf.push({ id: im[2], caption: im[1] }); }
+    else if (mode === 'ul' && !li && /^\s{2,}\S/.test(line)) {
+      const t = line.trim();
+      buf[buf.length - 1] += t.startsWith('**') ? '\n' + t : t;
+    }
     else if (li) { if (mode !== 'ul') flush(); mode = 'ul'; buf.push(li[1]); }
     else if (!line.trim()) flush();
     else { if (mode !== 'p') flush(); mode = 'p'; buf.push(line); }

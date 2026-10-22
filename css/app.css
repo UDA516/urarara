@@ -16,6 +16,11 @@
   --accent-soft: rgba(240, 98, 146, 0.16);
   --high: #f06292;            /* 高設定域の棒 */
   --low: #5c5c66;
+  /* 天井・狙い目の色（G数の帯と、メモの表の円の値の塗り）。彩度を抑えた淡い緑の2段階と、ほぼ塗らない灰 */
+  --hunt-no: #2c2c31;         /* 打たない・マイナス */
+  --hunt-plus: #2f4b3a;       /* プラス（0〜+999円） */
+  --hunt-good: #4a7d60;       /* 1000円以上 */
+  --hunt-good-text: #8fcea8;  /* 1000円以上の境目の ▲ */
   --rate: #81d4fa;            /* 自分の確率 1/x */
   --warn: #ffb74d;
   --warn-soft: rgba(255, 183, 77, 0.12);
@@ -172,6 +177,7 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--surface-3); color: var(--text-dim); font-size: 11px; font-weight: 700; vertical-align: 1px; }
 .badge-play { background: var(--accent-soft); color: var(--accent); }
 .seg { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
+.seg.three { grid-template-columns: 1fr 1fr 1fr; }
 .seg a { padding: 9px; text-align: center; color: var(--text-dim); font-weight: 700; text-decoration: none; }
 .seg a.on { background: var(--accent-soft); color: var(--accent); }
 .seg button { padding: 9px; background: transparent; border: 0; color: var(--text-dim); font-weight: 700; }
@@ -333,6 +339,53 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .memo-sec h3 { margin: 0 0 4px; font-size: 13px; color: var(--warn); }
 .memo-body p { margin: 0 0 6px; }
 .memo-body ul { margin: 0 0 6px; padding-left: 1.2em; }
+/* メモの表（ui.js の md）。幅からはみ出すときは表だけ横に送る。表のすぐ下の文は注記として小さく */
+.memo-tbl { margin: 0 0 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.memo-tbl table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.45; }
+.memo-tbl th, .memo-tbl td { padding: 5px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.memo-tbl th { background: var(--surface-2); color: var(--text-dim); font-weight: 700; }
+.memo-tbl td:first-child { font-weight: 700; }
+.memo-tbl td:first-child:not(.n) { min-width: 5.5em; }
+.memo-tbl .n { white-space: nowrap; }
+.memo-tbl .r { text-align: right; font-variant-numeric: tabular-nums; }
+.memo-tbl .c { text-align: center; }
+.memo-tbl + p, .memo-tbl + ul, .memo-legend + p, .memo-legend + ul { font-size: 12px; color: var(--text-dim); }
+.memo-tbl + ul, .memo-legend + ul { padding-left: 1.1em; }
+/* 円の値で塗る列（ui.js の tableHtml）。色は G数の帯（.hunt の no・plus・good）と同じ。濃いピンクの上は白の太字 */
+.memo-tbl .h0, .memo-legend .h0 { background: var(--hunt-no); }
+.memo-tbl .h1, .memo-legend .h1 { background: var(--hunt-plus); }
+.memo-tbl .h2, .memo-legend .h2 { background: var(--hunt-good); }
+.memo-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: -2px 0 8px; font-size: 11px; color: var(--text-dim); }
+.memo-legend span { display: flex; align-items: center; gap: 4px; }
+.memo-legend i { display: block; width: 14px; height: 10px; border-radius: 2px; }
+
+/* 天井・狙い目の帯（machines.js の huntHtml） */
+.hunt-bar + .hunt-bar { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.hunt-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.hunt-head b { font-size: 14px; }
+.hunt-head span { font-size: 13px; font-weight: 700; color: var(--warn); }
+.hunt-row { display: grid; grid-template-columns: 44px 1fr; align-items: start; }
+.hunt-lab { font-size: 12px; font-weight: 700; color: var(--text-dim); line-height: 14px; }
+.hunt-scale { position: relative; }
+.hunt-axis .hunt-scale { height: 14px; }
+.hunt-axis i, .hunt-marks i { position: absolute; top: 0; font-style: normal; font-size: 10px; line-height: 12px; white-space: nowrap; }
+.hunt-axis i { color: var(--text-faint); }
+.hunt-axis i.end { transform: translateX(-100%); color: var(--warn); }
+.hunt-track { display: flex; height: 14px; border-radius: 3px; overflow: hidden; border-right: 2px solid var(--warn); }
+.hunt-track i, .hunt-legend i { display: block; }
+.hunt .no { background: var(--hunt-no); }
+.hunt .plus { background: var(--hunt-plus); }
+.hunt .good { background: var(--hunt-good); }
+.hunt-marks { position: relative; height: 16px; margin-bottom: 2px; }
+.hunt-marks i { top: 2px; transform: translateX(-5px); color: var(--text-dim); }
+.hunt-marks i.g { color: var(--hunt-good-text); font-weight: 700; }
+.hunt-marks.two { height: 30px; }
+.hunt-marks i.low { top: 16px; }
+.hunt-why { margin: 2px 0 0; font-size: 12px; color: var(--text-dim); }
+.hunt-legend { display: flex; gap: 12px; margin-top: 12px; font-size: 11px; color: var(--text-dim); }
+.hunt-legend span { display: flex; align-items: center; gap: 4px; }
+.hunt-legend i { width: 14px; height: 10px; border-radius: 2px; }
+.hunt-note { margin: 6px 0 0; font-size: 11px; color: var(--text-faint); }
 
 /* ---------------------------------------------------------------- 画像（小さく並べ、押すと全画面。images.js） */
 .img-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; margin: 6px 0 10px; }

@@ -1,4 +1,4 @@
-// 機種の一覧と詳細（メモ・スペック表）。詳細から判別・ぶどう逆算へ移れる
+// 機種の一覧と詳細（メモ・スペック表・天井・狙い目）。詳細から判別・ぶどう逆算へ移れる
 import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
 import { matches } from '../search.js';
@@ -40,23 +40,79 @@ export function render(root, args, ctx) {
   });
 }
 
+// メモのうち「## 天井・狙い目…」の節は、メモから外して「天井・狙い目」の切り替えに出す
+const HUNT_TITLE = /^天井・狙い目/;
+
+const secHtml = (title, body) =>
+  `<section class="memo-sec">${title ? `<h3>${esc(title)}</h3>` : ''}<div class="memo-body">${md(body)}</div></section>`;
+
+/** 節の本文を「### 小見出し」で分けて描く（小見出しの前の文は見出し無し） */
+function subSecHtml(body) {
+  const subs = [{ title: '', lines: [] }];
+  for (const line of body.split('\n')) {
+    const h = line.match(/^###\s+(.+?)\s*$/);
+    if (h) subs.push({ title: h[1], lines: [] });
+    else subs[subs.length - 1].lines.push(line);
+  }
+  return subs.filter(s => s.lines.join('').trim()).map(s => secHtml(s.title, s.lines.join('\n').trim())).join('');
+}
+
+/** 天井・狙い目の帯（機種ファイルの [hunt]）。天井ごとに、レートごとの「打たない・プラス・1000円以上」を G数の帯で出す。
+ *  帯の長さはいちばん長い天井にそろえる（短縮された天井は短く見える） */
+function huntHtml(h) {
+  const max = Math.max(...h.bars.map(b => b.ceiling));
+  const pct = (g, of) => `${(g / of * 100).toFixed(2)}%`;
+  const ticks = c => [...new Set([0, 300, 600].filter(g => g <= c - 150).concat(c))];
+  const bar = b => `<div class="hunt-bar">
+      <div class="hunt-head"><b>${esc(b.label)}</b><span>天井 ${b.ceiling}G</span></div>
+      <div class="hunt-row hunt-axis"><span></span><div class="hunt-scale" style="width:${pct(b.ceiling, max)}">${ticks(b.ceiling).map(g =>
+        `<i style="left:${pct(g, b.ceiling)}" class="${g === b.ceiling ? 'end' : ''}">${g}</i>`).join('')}</div></div>
+      ${b.rows.map(r => {
+        const good = r.good ?? b.ceiling;
+        // ▲ の数字が重ならないよう、同じ値なら1つにまとめ、近い（帯の長さに対し13%未満）ときは good の ▲ を2段目に下げる
+        const same = r.good != null && r.good === r.plus;
+        const low = r.good != null && !same && (r.good - r.plus) / max < 0.13;
+        const marks = same ? `<i class="g" style="left:${pct(r.plus, b.ceiling)}">▲${r.plus}</i>`
+          : `<i style="left:${pct(r.plus, b.ceiling)}">▲${r.plus}</i>${r.good != null ? `<i class="g${low ? ' low' : ''}" style="left:${pct(r.good, b.ceiling)}">▲${r.good}</i>` : ''}`;
+        return `<div class="hunt-row"><span class="hunt-lab">${esc(r.label)}</span><div class="hunt-scale" style="width:${pct(b.ceiling, max)}">
+          <div class="hunt-track"><i class="no" style="width:${pct(r.plus, b.ceiling)}"></i><i class="plus" style="width:${pct(good - r.plus, b.ceiling)}"></i><i class="good" style="width:${pct(b.ceiling - good, b.ceiling)}"></i></div>
+          <div class="hunt-marks${low ? ' two' : ''}">${marks}</div>
+        </div></div>`;
+      }).join('')}
+      ${b.reason ? `<p class="hunt-why">根拠: ${esc(b.reason)}</p>` : ''}
+    </div>`;
+  return `<section class="card hunt">
+    ${h.bars.map(bar).join('')}
+    <div class="hunt-legend"><span><i class="no"></i>打たない</span><span><i class="plus"></i>プラス</span><span><i class="good"></i>1000円以上</span></div>
+    ${h.note ? `<p class="hunt-note">${esc(h.note)}</p>` : ''}
+  </section>`;
+}
+
 function detail(root, id, tab, ctx) {
   const m = catalog.machine(id);
   ctx.setBar({ title: m ? m.name : '機種', back: '#/machines' });
   if (!m) { root.innerHTML = '<p class="empty">この機種は今のデータにありません</p>'; return; }
   const judge = J.isJudgeable(m);
-  const showSpec = judge && tab === 'spec';
+  const sections = m.sections || [];
+  const hunt = sections.find(s => HUNT_TITLE.test(s.title));
+  const tabs = [['', 'メモ'], ...(judge ? [['spec', 'スペック表']] : []), ...(hunt || m.hunt ? [['hunt', '天井・狙い目']] : [])];
+  const cur = tabs.some(t => t[0] === tab) ? tab : '';
+  const showSpec = cur === 'spec';
   const base = `#/machines/${encodeURIComponent(m.id)}`;
   const info = [TYPE_LABEL[m.type] || m.type, m.maker, m.aliases?.length ? '別名 ' + m.aliases.join('・') : ''].filter(Boolean).join(' · ');
   const payout = showSpec ? J.payoutHtml(m) : '';
-  const memo = m.sections?.length
-    ? m.sections.map(s => `<section class="memo-sec">${s.title ? `<h3>${esc(s.title)}</h3>` : ''}<div class="memo-body">${md(s.body)}</div></section>`).join('')
+  const memoSecs = sections.filter(s => s !== hunt);
+  const memo = memoSecs.length
+    ? memoSecs.map(s => secHtml(s.title, s.body)).join('')
     : '<p class="empty">メモはまだありません（PC の機種ファイルの下側に書きます）</p>';
+  const body = showSpec ? `<section class="card">${J.specTableHtml(m)}${J.ratioNote(m)}</section>${J.breakdownHtml(m)}`
+    : cur === 'hunt' ? (m.hunt ? huntHtml(m.hunt) : '') + (hunt ? subSecHtml(hunt.body) : '') : memo;
   root.innerHTML = `
     <p class="sub">${esc(info)}</p>
     ${cautionCard(m)}
-    ${judge ? `<div class="seg"><a href="${base}" class="${showSpec ? '' : 'on'}">メモ</a><a href="${base}/spec" class="${showSpec ? 'on' : ''}">スペック表</a></div>` : ''}
-    ${showSpec ? `<section class="card">${J.specTableHtml(m)}${J.ratioNote(m)}</section>${J.breakdownHtml(m)}` : memo}
+    ${tabs.length > 1 ? `<div class="seg ${tabs.length > 2 ? 'three' : ''}">${tabs.map(([k, label]) =>
+      `<a href="${k ? `${base}/${k}` : base}" class="${k === cur ? 'on' : ''}">${label}</a>`).join('')}</div>` : ''}
+    ${body}
     ${payout ? `<section class="card"><div class="card-title">機械割</div>${payout}</section>` : ''}
     ${judge ? `<div class="actions dock ${J.canBackcalc(m) ? 'two' : ''}">
       ${J.canBackcalc(m) ? '<button type="button" class="btn" data-bc>ぶどう逆算</button>' : ''}
