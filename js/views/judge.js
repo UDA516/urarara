@@ -45,6 +45,68 @@ const fieldsOf = m => {
 /** 現在の欄と、その打ち始めの欄（現在は打ち始めより小さくしない） */
 const START_OF = { totalG: 'startG', totalAllG: 'startAllG' };
 
+// ---------------------------------------------------------------- 要素ごと・設定差の表（判別の画面と記録の詳細で使う）
+
+const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}">${head}${body}</details>`;
+// 要素ごと・設定差の表のカード。中が組に分かれていれば（A タイプ）組ごとに、1つの表なら（ジャグラー。
+// 並びは元の HTML のまま）カードの見出しでまるごとたたむ。tail はたたむ中身の外（カードの下）に出すもの
+const card = (key, title, body, grouped, tail = '') => `<section class="card" data-card="${esc(key)}">${grouped
+  ? `<div class="card-title">${title}</div>${body}`
+  : fold(key, `<summary class="card-title">${title}</summary>`, body)}${tail}</section>`;
+
+/** 要素ごと（近い設定）のカード。行に組（sec）があれば組ごとの表にする。前任者込みの列は、その列のある組だけ。値は fillTables で入れる */
+export function elementCardHtml(m) {
+  const elTable = (rows, both) => `<table class="tbl"><thead><tr><th>要素</th><th>自分</th>${both ? '<th>前任者込み</th>' : ''}</tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${esc(r.label)}</td><td data-el="mine:${r.c}"${r.pct ? ' data-pct-el' : ''}></td>${both ? `<td ${r.both ? `data-el="all:${r.c}"` : ''}>${r.both ? '' : '—'}</td>` : ''}</tr>`).join('')}
+      </tbody></table>`;
+  const groups = [];
+  for (const r of J.elementRows(m)) {
+    let g = groups.find(x => x.title === (r.sec || ''));
+    if (!g) groups.push(g = { title: r.sec || '', rows: [] });
+    g.rows.push(r);
+  }
+  const body = groups.map(g => (g.title
+    ? fold(`el:${g.title}`, `<summary class="fold-title">${esc(g.title)}</summary>`, elTable(g.rows, g.rows.some(r => r.both)))
+    : elTable(g.rows, true))).join('');
+  return card('el:all', '要素ごと（近い設定）', body, groups.some(g => g.title));
+}
+
+/** 設定差の表のカード。塗りは fillTables で。tail はカードの下に出すもの（判別の画面は移るボタン） */
+export function specCardHtml(m, tail = '') {
+  const L = fieldLabels(m);
+  const at = J.myItems(m).some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : '';
+  // 設定差の表で前任者と合わせた値で塗る列の名前（[names] があればその名前。AT機は合算・BR比率が無く、
+  // 名前を付け替えた A タイプは BR比率が無い）。AT機は前任者の回数を入れないので、全部の列を自分の値で塗る
+  const withPrevText = [m.names?.big || 'BB', m.names?.reg || 'RB', ...(J.hasCombo(m) ? [m.names?.combo || '合算'] : []),
+    ...(J.hasBr(m) ? ['BR比率'] : [])].join('・');
+  const markNote = J.usesPrev(m)
+    ? `${esc(withPrevText)}は前任者と自分を合わせた値、ほかの列は自分の値（${esc(L.myG)}と自分の回数${at}）で`
+    : `自分の値（${esc(L.myG)}と自分の回数${at}）で`;
+  return card('spec:all', '設定差の表', `${J.specTableHtml(m)}${J.ratioNote(m)}
+      <p class="note"><span class="mk mk-near">塗り</span>近い設定。${markNote}</p>`,
+    J.specGroups(m).some(g => g.title), tail);
+}
+
+/** 要素ごとの表の値と、設定差の表の塗りを入れる。meas は J.measures、ws はシナリオ判別の重み（設定の確からしさ・自分） */
+export function fillTables(root, m, s, meas, ws) {
+  root.querySelectorAll('[data-el]').forEach(td => {
+    const [kind, c] = td.dataset.el.split(':');
+    if (c === SC.EL) {
+      const e = SC.elementText(m, s, ws);
+      td.innerHTML = e ? `${esc(e.v)}<small>設定${esc(e.near)}</small>` : '—';
+      return;
+    }
+    const v = meas[kind][c];
+    const near = J.nearest(m, c, v);
+    // 割合（%）で書いた項目は % で（v は 1/N の N）
+    td.innerHTML = v ? `${td.hasAttribute('data-pct-el') ? fmtPct(1 / v) : fmtDen(v)}${near ? `<small>設定${esc(near.text)}</small>` : ''}` : '—';
+  });
+  root.querySelectorAll('.spec td.mk-near').forEach(td => td.classList.remove('mk-near'));
+  for (const [c, idx] of Object.entries(J.specMarks(m, meas))) {
+    idx.forEach(i => root.querySelector(`[data-spec="${c}:${i}"]`)?.classList.add('mk-near'));
+  }
+}
+
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 export const placeText = r => `${r.store || '店舗なし'} · ${r.num ? r.num + '番' : '台番号なし'}`;
@@ -501,7 +563,6 @@ function renderSession(root, s, ctx) {
     : '';
   // 縦に長いので、見出しを押してたためる（ユーザーの指示 2026-10-08。A タイプで始め、ジャグラーも同じに）。
   // はじめはたたんであり、開いた組を機種ごとに端末に覚える（2026-10-18）。ボーナスの組は、たたんでも回数が分かるように見出しに合計を出す
-  const fold = (key, head, body) => `<details class="fold" data-fold="${esc(key)}">${head}${body}</details>`;
   // 確からしさ・カウント・設定差の表のあいだを移るボタン（2026-10-18 ユーザーの指示「各小役のところから確率のところまで
   // 移動するボタン」「逆も然り」「表からカウントのところまでも移動できる循環するような」）。どこからでもほかの2つへ移れる。
   // 矢印は画面の上下の向きで、近いほうを先に。カウントへは、最後に触った組（開いていれば）へ戻る
@@ -542,33 +603,7 @@ function renderSession(root, s, ctx) {
       <p class="note" data-unof-alt></p>
       <p class="note">未公表の値（判別ツールの目安・実戦値など）: ${unofSecs.map(t => `「${esc(t)}」`).join('・')}</p>
     </div>` : '';
-  // 要素ごと・設定差の表のカード。中が組に分かれていれば（A タイプ）組ごとに、1つの表なら（ジャグラー。
-  // 並びは元の HTML のまま）カードの見出しでまるごとたたむ。tail はたたむ中身の外（カードの下）に出すもの
-  const card = (key, title, body, grouped, tail = '') => `<section class="card" data-card="${esc(key)}">${grouped
-    ? `<div class="card-title">${title}</div>${body}`
-    : fold(key, `<summary class="card-title">${title}</summary>`, body)}${tail}</section>`;
-  // 要素ごとの表。行に組（sec）があれば組ごとの表にする。前任者込みの列は、その列のある組だけ
-  const elTable = (rows, both) => `<table class="tbl"><thead><tr><th>要素</th><th>自分</th>${both ? '<th>前任者込み</th>' : ''}</tr></thead><tbody>
-        ${rows.map(r => `<tr><td>${esc(r.label)}</td><td data-el="mine:${r.c}"${r.pct ? ' data-pct-el' : ''}></td>${both ? `<td ${r.both ? `data-el="all:${r.c}"` : ''}>${r.both ? '' : '—'}</td>` : ''}</tr>`).join('')}
-      </tbody></table>`;
-  const elGroups = [];
-  for (const r of J.elementRows(m)) {
-    let g = elGroups.find(x => x.title === (r.sec || ''));
-    if (!g) elGroups.push(g = { title: r.sec || '', rows: [] });
-    g.rows.push(r);
-  }
-  const elementHtml = elGroups.map(g => (g.title
-    ? fold(`el:${g.title}`, `<summary class="fold-title">${esc(g.title)}</summary>`, elTable(g.rows, g.rows.some(r => r.both)))
-    : elTable(g.rows, true))).join('');
   const notes = J.cautions(m);   // 始めるときに出した注意。途中から開いたときのために、たたんで残す
-  // 設定差の表で前任者と合わせた値で塗る列の名前（[names] があればその名前。AT機は合算・BR比率が無く、
-  // 名前を付け替えた A タイプは BR比率が無い）。AT機は前任者の回数を入れないので、全部の列を自分の値で塗る
-  const withPrevText = [m.names?.big || 'BB', m.names?.reg || 'RB', ...(J.hasCombo(m) ? [m.names?.combo || '合算'] : []),
-    ...(J.hasBr(m) ? ['BR比率'] : [])].join('・');
-  const markNote = prev
-    ? `${esc(withPrevText)}は前任者と自分を合わせた値、ほかの列は自分の値（${esc(L.myG)}と自分の回数${
-      items.some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : ''}）で`
-    : `自分の値（${esc(L.myG)}と自分の回数${items.some(it => it.of) ? '。AT中も数える列は、AT中のG数と回数も足す' : ''}）で`;
   const KIND_TEXT = { mine: '自分', all: '前任者込み' };
 
   // 上に固定した欄: 近似の設定（押すと先頭へ）と、シナリオ判別のある機種はそれを呼び出すボタン
@@ -599,7 +634,7 @@ function renderSession(root, s, ctx) {
       ${notes.length ? `<details class="caution-fold"><summary>この機種のデータの注意（${notes.length}件）</summary>
         <ul>${notes.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
     </section>
-    ${card('el:all', '要素ごと（近い設定）', elementHtml, elGroups.some(g => g.title))}
+    ${elementCardHtml(m)}
     <section class="card">
       <div class="card-title">前任者（打ち始め時）</div>
       ${!prev
@@ -616,9 +651,7 @@ function renderSession(root, s, ctx) {
       ${sections.map(sectionHtml).join('')}
       ${dashNote}
     </section>
-    ${card('spec:all', '設定差の表', `${J.specTableHtml(m)}${J.ratioNote(m)}
-      <p class="note"><span class="mk mk-near">塗り</span>近い設定。${markNote}</p>`,
-      J.specGroups(m).some(g => g.title), jumps('spec'))}
+    ${specCardHtml(m, jumps('spec'))}
     <div class="actions">
       <button type="button" class="btn btn-block" data-memo></button>
       <button type="button" class="btn btn-accent btn-block" data-end>終了して記録へ</button>
@@ -728,23 +761,7 @@ function renderSession(root, s, ctx) {
 
     // シナリオ判別に入れたものの要素の行・上の欄のボタン・枠は、設定の確からしさ（自分）で重み付けしたシナリオの確からしさを出す
     const ws = m.scenario ? pm ?? J.posterior(m, s, false) : null;
-    root.querySelectorAll('[data-el]').forEach(td => {
-      const [kind, c] = td.dataset.el.split(':');
-      if (c === SC.EL) {
-        const e = SC.elementText(m, s, ws);
-        td.innerHTML = e ? `${esc(e.v)}<small>設定${esc(e.near)}</small>` : '—';
-        return;
-      }
-      const v = meas[kind][c];
-      const near = J.nearest(m, c, v);
-      // 割合（%）で書いた項目は % で（v は 1/N の N）
-      td.innerHTML = v ? `${td.hasAttribute('data-pct-el') ? fmtPct(1 / v) : fmtDen(v)}${near ? `<small>設定${esc(near.text)}</small>` : ''}` : '—';
-    });
-
-    root.querySelectorAll('.spec td.mk-near').forEach(td => td.classList.remove('mk-near'));
-    for (const [c, idx] of Object.entries(J.specMarks(m, meas))) {
-      idx.forEach(i => $(`[data-spec="${c}:${i}"]`)?.classList.add('mk-near'));
-    }
+    fillTables(root, m, s, meas, ws);
 
     // シナリオ判別（機種ファイルの [scenario] がある機種だけ。scenario.js。選ばれやすさが設定ごとに違う機種は、入れたものが
     // 設定の確からしさにも入る）。上の欄のボタンには次の回の成功期待度を出し、中身は押すと下から出す枠

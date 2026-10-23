@@ -6,7 +6,7 @@ import * as J from '../juggler.js';
 import { kvGet, kvSet, kvDel, recAll, recGet, recPut, recDel } from '../db.js';
 import { esc, fmtInt, fmtPct, fmtDate, fmtTime, dayKey, toast, openSheet, confirmDialog, copyText, swipeRows } from '../ui.js';
 import { navigate } from '../nav.js';
-import { askPlace, editMemo, finishSession, currentSession, placeText, fieldLabels } from './judge.js';
+import { askPlace, editMemo, finishSession, currentSession, placeText, fieldLabels, elementCardHtml, specCardHtml, fillTables } from './judge.js';
 import { recordRows } from '../scenario.js';
 import { recordRows as modeRows } from '../mode.js';
 
@@ -110,6 +110,27 @@ function barsHtml(snap, r) {
   </section>`;
 }
 
+/** データの版と、共有された値から始めたか */
+const versionNote = r => `<p class="note">データの版 ${esc(catalog.versionLabel(r.dataVersion))}${r.sharedAt
+  ? `。共有された値（${fmtDate(r.sharedAt)} ${fmtTime(r.sharedAt)}）から始めた判別です` : ''}</p>`;
+
+/** シナリオ・モード判別に入れたもの（入れた機種だけ） */
+const scenarioRows = (r, m) => [...recordRows(m, r, snapOf(r)?.mine), ...modeRows(m, r)];
+const kvRow = (label, v) => `<div class="kv"><span>${esc(label)}</span><b>${esc(v)}</b></div>`;
+
+/** 判別の画面と同じ要素ごと・設定差の表（入れた数字から今の表で計算する。読むだけ）。
+ *  入れた数字そのものは出さない（2026-10-23 ユーザーの指示「なんの数値にもならないので」。書き出しには残る） */
+function tablesHtml(r, m) {
+  const sc = recordRows(m, r, snapOf(r)?.mine), md = modeRows(m, r);
+  const title = [sc.length && m.scenario.label, md.length && m.mode.label].filter(Boolean).join('・');
+  return `${elementCardHtml(m)}${specCardHtml(m)}
+    <section class="card">
+      ${title ? `<div class="card-title">${esc(title)}</div>${[...sc, ...md].map(([k, v]) => kvRow(k, v)).join('')}` : ''}
+      ${versionNote(r)}
+    </section>`;
+}
+
+/** 入れた数字の一覧。機種が今のデータに無い・表が引けない記録だけ（ほかに見るものが無いため） */
 function inputsHtml(r, m) {
   const items = m && J.isJudgeable(m) ? [...J.myItems(m)] : [];
   // 今の機種ファイルに無い項目（項目を分け直す前の記録など）も、数えた回数が消えて見えないように出す
@@ -118,7 +139,7 @@ function inputsHtml(r, m) {
     if (!have.has(id) && r.counts[id]) items.push({ id, label: J.LABEL[id] || (m ? `${id}（今の表に無い項目）` : id) });
   }
   const myG = Math.max(0, (r.totalG || 0) - (r.startG || 0));
-  const row = (label, v) => `<div class="kv"><span>${esc(label)}</span><b>${esc(v)}</b></div>`;
+  const row = kvRow;
   const L = fieldLabels(m);   // AT機は「ST / CZ」「通常G」など（機種ファイルの [names]）
   // 総G（AT機。[names] の all）。今の表に無くても、入れてあれば出す
   const allRows = L.startAllG || r.startAllG || r.totalAllG
@@ -133,9 +154,8 @@ function inputsHtml(r, m) {
     ${row(L.myG, fmtInt(myG))}
     ${allRows}
     ${items.filter(it => !it.hidden).map(it => { const k = J.countOf(m, it, r.counts); return row(it.label, k == null ? '—' : fmtInt(k)); }).join('')}
-    ${[...recordRows(m, r, snapOf(r)?.mine), ...modeRows(m, r)].map(([k, v]) => row(k, v)).join('')}
-    <p class="note">データの版 ${esc(catalog.versionLabel(r.dataVersion))}${r.sharedAt
-      ? `。共有された値（${fmtDate(r.sharedAt)} ${fmtTime(r.sharedAt)}）から始めた判別です` : ''}</p>
+    ${scenarioRows(r, m).map(([k, v]) => row(k, v)).join('')}
+    ${versionNote(r)}
   </section>`;
 }
 
@@ -145,10 +165,11 @@ async function detail(root, id, ctx) {
   if (!r) { root.innerHTML = '<p class="empty">この記録はありません</p>'; return; }
   const m = catalog.machine(r.machineId);
   const snap = snapOf(r);
+  const tables = r.status !== 'memo' && m && J.isJudgeable(m);
   root.innerHTML = `
     <p class="sub">${esc(placeText(r))} · ${fmtDate(r.startedAt)} ${fmtTime(r.startedAt)}${r.endedAt ? '〜' + fmtTime(r.endedAt) : ''}<span class="badge ${r.status === 'playing' ? 'badge-play' : ''}">${STATUS[r.status] || ''}</span></p>
     ${snap ? barsHtml(snap, r) : ''}
-    ${r.status !== 'memo' ? inputsHtml(r, m) : ''}
+    ${tables ? tablesHtml(r, m) : r.status !== 'memo' ? inputsHtml(r, m) : ''}
     <section class="card">
       <div class="card-title">メモ</div>
       <div class="memo-body">${r.memo ? esc(r.memo).replace(/\n/g, '<br>') : '<span class="sub">なし</span>'}</div>
@@ -160,6 +181,12 @@ async function detail(root, id, ctx) {
       <button type="button" class="btn btn-block" data-place>店舗と台番号を直す</button>
       <button type="button" class="btn btn-danger btn-block" data-del>この記録を消す</button>
     </div>`;
+  if (tables) {
+    const s = { ...r, counts: r.counts || {} };
+    fillTables(root, m, s, J.measures(m, s), m.scenario ? J.posterior(m, s, false) : null);
+    // 見るための画面なので、たためる組は全部開いておく（判別の画面の開け閉めの覚えには入れない）
+    root.querySelectorAll('details[data-fold]').forEach(d => { d.open = true; });
+  }
   const again = () => navigate('#/records/' + encodeURIComponent(r.id));
   root.addEventListener('click', async e => {
     const t = e.target;
