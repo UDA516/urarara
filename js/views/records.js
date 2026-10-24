@@ -6,7 +6,7 @@ import * as J from '../juggler.js';
 import { kvGet, kvSet, kvDel, recAll, recGet, recPut, recDel } from '../db.js';
 import { esc, fmtInt, fmtPct, fmtDate, fmtTime, dayKey, toast, openSheet, confirmDialog, copyText, swipeRows } from '../ui.js';
 import { navigate } from '../nav.js';
-import { askPlace, editMemo, finishSession, currentSession, placeText, fieldLabels, elementCardHtml, specCardHtml, fillTables } from './judge.js';
+import { askPlace, editMemo, finishSession, currentSession, placeText, fieldLabels, elementCardHtml, specCardHtml, fillTables, rejoinSession, rejoinLines } from './judge.js';
 import { recordRows } from '../scenario.js';
 import { recordRows as modeRows } from '../mode.js';
 
@@ -118,6 +118,12 @@ const versionNote = r => `<p class="note">データの版 ${esc(catalog.versionL
 const scenarioRows = (r, m) => [...recordRows(m, r, snapOf(r)?.mine), ...modeRows(m, r)];
 const kvRow = (label, v) => `<div class="kv"><span>${esc(label)}</span><b>${esc(v)}</b></div>`;
 
+/** 一度やめた台に戻ったこと（間に打った人の分は前任者に足してある） */
+const rejoinNote = (r, m) => {
+  const rj = rejoinLines(m, r);
+  return rj.length ? `<p class="note">${rj.map(esc).join('<br>')}<br>前任者の数字（書き出しにも）には、間に打った人の分を足してあります（自分の分はそのまま）</p>` : '';
+};
+
 /** 判別の画面と同じ要素ごと・設定差の表（入れた数字から今の表で計算する。読むだけ）。
  *  入れた数字そのものは出さない（2026-10-23 ユーザーの指示「なんの数値にもならないので」。書き出しには残る） */
 function tablesHtml(r, m) {
@@ -127,6 +133,7 @@ function tablesHtml(r, m) {
     <section class="card">
       ${title ? `<div class="card-title">${esc(title)}</div>${[...sc, ...md].map(([k, v]) => kvRow(k, v)).join('')}` : ''}
       ${versionNote(r)}
+      ${rejoinNote(r, m)}
     </section>`;
 }
 
@@ -156,6 +163,7 @@ function inputsHtml(r, m) {
     ${items.filter(it => !it.hidden).map(it => { const k = J.countOf(m, it, r.counts); return row(it.label, k == null ? '—' : fmtInt(k)); }).join('')}
     ${scenarioRows(r, m).map(([k, v]) => row(k, v)).join('')}
     ${versionNote(r)}
+    ${rejoinNote(r, m)}
   </section>`;
 }
 
@@ -177,7 +185,8 @@ async function detail(root, id, ctx) {
     </section>
     <div class="actions">
       ${r.status === 'playing' ? '<a class="btn btn-accent btn-block" href="#/judge">判別に戻る</a>' : ''}
-      ${r.status === 'done' ? '<button type="button" class="btn btn-block" data-resume>判別を再開する</button>' : ''}
+      ${tables && r.status === 'done' ? '<button type="button" class="btn btn-block" data-rejoin>この台に戻って続ける（間に別の人が打った）</button>' : ''}
+      ${r.status === 'done' ? `<button type="button" class="btn btn-block" data-resume>判別を再開する${tables ? '（間に誰も打っていない）' : ''}</button>` : ''}
       <button type="button" class="btn btn-block" data-place>店舗と台番号を直す</button>
       <button type="button" class="btn btn-danger btn-block" data-del>この記録を消す</button>
     </div>`;
@@ -193,6 +202,8 @@ async function detail(root, id, ctx) {
     if (t.closest('[data-memo]')) editMemo(r, again);
     else if (t.closest('[data-place]')) {
       if (await editPlace(r)) again();
+    } else if (t.closest('[data-rejoin]')) {
+      if (await rejoinSession(m, r)) navigate('#/judge');
     } else if (t.closest('[data-resume]')) {
       const cur = await currentSession();
       if (cur && cur.id !== r.id) {

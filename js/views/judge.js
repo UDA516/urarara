@@ -4,7 +4,7 @@
 import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
 import { kvGet, kvSet, kvDel, recGet, recPut, recAll } from '../db.js';
-import { esc, fmtInt, fmtDen, fmtPct, fmtDate, fmtTime, toast, openSheet, confirmDialog, copyText, rememberFolds, imgGridHtml } from '../ui.js';
+import { esc, fmtInt, fmtDen, fmtPct, fmtDate, fmtTime, dayKey, toast, openSheet, confirmDialog, copyText, rememberFolds, imgGridHtml } from '../ui.js';
 import { showThumbs, bindViewer } from '../images.js';
 import { openNumpad, editChain } from '../numpad.js';
 import { matches } from '../search.js';
@@ -260,6 +260,109 @@ export function editMemo(rec, after) {
     await recPut(rec);
     sheet.close(true);
     after?.();
+  });
+}
+
+// ---------------------------------------------------------------- やめた台に戻る（間に別の人が打った）
+
+/** 間に打った人の分（「820G・BIG 2・REG 1」。AT機は G数だけで、総G もある機種は両方） */
+function gapText(m, x) {
+  const N = J.names(m);
+  const g = (name, v) => (name ? `${name} ${fmtInt(v)}` : `${fmtInt(v)}G`);
+  return [g(N.games, x.g), ...(x.allG != null ? [g(N.all, x.allG)] : []),
+    ...(x.big != null ? [`${N.big} ${fmtInt(x.big)}`, `${N.reg} ${fmtInt(x.reg)}`] : [])].join('・');
+}
+
+/** 戻ったことの行（「14:30 に戻った（間に 820G・BIG 2・REG 1）」）。判別の画面の前任者の欄と記録の詳細に出す */
+export const rejoinLines = (m, r) => (r.rejoins || []).map(x =>
+  `${dayKey(x.at) !== dayKey(r.startedAt) ? fmtDate(x.at) + ' ' : ''}${fmtTime(x.at)} に戻った（間に ${gapText(m, x)}）`);
+
+/** 一度やめた台に戻って続ける（2026-10-23 ユーザーの指示「途中から座って一度やめた台に再度戻っていった場合（間にまた別の人が
+ *  打っていた場合）の条件でデータを継続できるようにする」）。やめたときの G数と、データ機の今の G数・回数から間に打った人の分を
+ *  出して前任者に足す（前任者＝自分以外が打った分の合計になる）。打ち始めG にも間の G を足すので、自分の消化G（現在 − 打ち始め）・
+ *  自分の回数・前任者込みの計算は式を変えずに合う。新しい記録は作らず、終えた記録は判別中に戻す（自分の回数が2件に分かれて
+ *  二重に数えないように）。ほかの途中の判別は、ほかの台で始めるときと同じく終了して記録へ。シナリオ・モード判別は触らない。戻ったら true */
+export async function rejoinSession(m, s) {
+  const N = J.names(m);
+  const prev = J.usesPrev(m);
+  const all = !!N.all;
+  const gName = N.games || '総G';
+  const own = J.stats(m, s).own;
+  const cur = await currentSession();
+  const other = cur && cur.id !== s.id ? cur : null;
+  // やめたときは記録の現在の値を入れて出し（直せる）、データ機の今の数字は入れるまで「未入力」
+  const v = { leftG: s.totalG || 0, leftAllG: s.totalAllG || 0, nowG: null, nowAllG: null, nowBig: null, nowReg: null };
+  const F = [
+    { key: 'leftG', title: `やめたときの${gName}` },
+    ...(all ? [{ key: 'leftAllG', title: `やめたときの${N.all}` }] : []),
+    { key: 'nowG', title: `今の${gName}` },
+    ...(all ? [{ key: 'nowAllG', title: `今の${N.all}` }] : []),
+    ...(prev ? [{ key: 'nowBig', title: `今の${N.big}` }, { key: 'nowReg', title: `今の${N.reg}` }] : []),
+  ];
+  // 間に打った人の分。マイナスになるもの（打ち間違い・日をまたいで戻ったデータ機）は入れさせず、わけを出す
+  const calc = () => {
+    const miss = F.filter(f => v[f.key] == null);
+    if (miss.length) return { wait: `${miss.map(f => f.title).join('・')}を入れてください` };
+    const x = {
+      g: v.nowG - v.leftG, ...(all ? { allG: v.nowAllG - v.leftAllG } : {}),
+      ...(prev ? { big: v.nowBig - (s.prevBig || 0) - own.big, reg: v.nowReg - (s.prevReg || 0) - own.reg } : {}),
+    };
+    const errs = [];
+    if (v.leftG < (s.startG || 0)) errs.push(`やめたときの${gName}が、打ち始め（${fmtInt(s.startG)}）より小さくなります`);
+    if (x.g < 0) errs.push(`今の${gName}が、やめたとき（${fmtInt(v.leftG)}）より小さくなります`);
+    if (all && v.leftAllG < (s.startAllG || 0)) errs.push(`やめたときの${N.all}が、打ち始め（${fmtInt(s.startAllG)}）より小さくなります`);
+    if (all && x.allG < 0) errs.push(`今の${N.all}が、やめたとき（${fmtInt(v.leftAllG)}）より小さくなります`);
+    for (const [k, name] of [['big', N.big], ['reg', N.reg]]) {
+      if (prev && x[k] < 0) errs.push(`今の${name}が、前任者と自分の合計（${fmtInt((s[k === 'big' ? 'prevBig' : 'prevReg'] || 0) + own[k])}）より少なくなります`);
+    }
+    return errs.length ? { err: `${errs.join('。')}。打ち間違いか、日をまたいでデータ機の数字が戻っていないかを確かめてください` } : { x };
+  };
+  const marks = [m.scenario?.label, m.mode?.label].filter(Boolean);
+  return new Promise(resolve => {
+    const sheet = openSheet(`<div class="sheet-title">この台に戻って続ける</div>
+      <p class="note">やめてから戻るまでに別の人が打った分を、データ機の今の数字から出して前任者に足します。自分の G数・回数はそのままです（間に誰も打っていなければ、やめたときと同じ数字を入れます）</p>
+      <div class="fields2" style="margin-top:10px">${F.map(f => `<button type="button" class="field" data-rj="${f.key}"><span class="k">${esc(f.title)}</span><b data-rjv="${f.key}"></b></button>`).join('')}</div>
+      <p class="note" data-rj-gap></p>
+      <p class="lock-err" data-rj-err hidden></p>
+      ${other ? `<p class="note">途中の判別（${esc(other.machineName)} · ${esc(placeText(other))}）は終了して記録に入れます</p>` : ''}
+      ${marks.length ? `<p class="note">${marks.map(x => `「${esc(x)}」`).join('・')}の判別に入れたものはそのまま残します（間に打った人の分は、要れば直してください）</p>` : ''}
+      <div class="dlg-btns"><button type="button" class="btn btn-accent btn-block" data-ok disabled>戻って続ける</button></div>`,
+      { onClose: resolve });
+    const el = sheet.el;
+    const paint = () => {
+      for (const f of F) el.querySelector(`[data-rjv="${f.key}"]`).textContent = v[f.key] == null ? '未入力' : fmtInt(v[f.key]);
+      const r = calc();
+      el.querySelector('[data-rj-gap]').textContent = r.x ? `間に打った人: ${gapText(m, r.x)}（前任者に足します）` : r.wait || '';
+      const err = el.querySelector('[data-rj-err]');
+      err.hidden = !r.err;
+      err.textContent = r.err || '';
+      el.querySelector('[data-ok]').disabled = !r.x;
+    };
+    el.addEventListener('click', async e => {
+      const b = e.target.closest('[data-rj]');
+      if (b) {
+        await editChain(F.map(f => ({ title: f.title, get: () => v[f.key] ?? 0, set: (n, empty) => { v[f.key] = empty ? null : Math.max(0, n); paint(); } })),
+          F.findIndex(f => f.key === b.dataset.rj));
+        return;
+      }
+      if (!e.target.closest('[data-ok]')) return;
+      const { x } = calc();
+      if (!x) return;
+      if (other) await finishSession(other);
+      s.startG = (s.startG || 0) + x.g;
+      s.totalG = v.nowG;
+      if (all) { s.startAllG = (s.startAllG || 0) + x.allG; s.totalAllG = v.nowAllG; }
+      if (prev) { s.prevBig = (s.prevBig || 0) + x.big; s.prevReg = (s.prevReg || 0) + x.reg; }
+      const now = Date.now();
+      s.rejoins = [...(s.rejoins || []), { at: now, leftG: v.leftG, backG: v.nowG, ...(all ? { leftAllG: v.leftAllG, backAllG: v.nowAllG } : {}), ...x }];
+      if (s.status !== 'playing') { s.status = 'playing'; delete s.endedAt; }   // 終了時刻はまた終えたときに入れ直す
+      s.updatedAt = now;
+      await recPut(s);
+      await kvSet('current', s.id);
+      sheet.close(true);
+      toast(`戻りました（間に ${gapText(m, x)} を前任者に足しました）`);
+    });
+    paint();
   });
 }
 
@@ -636,13 +739,15 @@ function renderSession(root, s, ctx) {
     </section>
     ${elementCardHtml(m)}
     <section class="card">
-      <div class="card-title">前任者（打ち始め時）</div>
+      <div class="card-title" data-prev-title></div>
       ${!prev
         ? `<div class="fields2">${field('startG', esc(L.startG))}${L.startAllG ? field('startAllG', esc(L.startAllG)) : ''}</div>
           <p class="note">${esc(N.big)}・${esc(N.reg)}など前任者の回数は入れず、G数だけを引き継ぎます（結果は自分の分だけ）</p>`
         : L.startAllG
         ? `<div class="fields2">${field('startG', esc(L.startG))}${field('startAllG', esc(L.startAllG))}${field('prevBig', esc(L.prevBig))}${field('prevReg', esc(L.prevReg))}</div>`
         : `<div class="fields3">${field('startG', esc(L.startG))}${field('prevBig', esc(L.prevBig))}${field('prevReg', esc(L.prevReg))}</div>`}
+      <p class="note" data-rejoins hidden></p>
+      <button type="button" class="btn btn-ghost btn-block" data-rejoin style="margin-top:10px">離れて戻った（間に別の人が打った）</button>
     </section>
     <section class="card" data-card="cnt">
       <div class="card-title">自分</div>
@@ -719,6 +824,11 @@ function renderSession(root, s, ctx) {
       setText('[data-unof-alt]', parts.length ? `${off ? '入れた' : '入れない'}場合: ${parts.join('・')}` : '');
     }
 
+    // 一度やめて戻った（間に別の人が打った）なら、前任者の欄は自分以外が打った分の合計
+    const rj = rejoinLines(m, s);
+    setText('[data-prev-title]', rj.length ? '前任者＋間に打った人' : '前任者（打ち始め時）');
+    $('[data-rejoins]').hidden = !rj.length;
+    $('[data-rejoins]').innerHTML = rj.length ? `${rj.map(esc).join('<br>')}<br>上の数字は、前任者に間に打った人の分を足したものです（自分の分はそのまま）` : '';
     for (const f of FIELDS) setText(`[data-v="${f.key}"]`, fmtInt(s[f.key]));
     setText('[data-v="myG"]', fmtInt(myG));
     setText('[data-v="myAllG"]', fmtInt(J.myAllGames(s)));
@@ -856,6 +966,8 @@ function renderSession(root, s, ctx) {
     } else if (t.closest('[data-place]')) {
       const p = await askPlace({ title: '店舗と台番号', store: s.store, num: s.num, okLabel: '変える' });
       if (p) { s.store = p.store; s.num = p.num; save(); update(); }
+    } else if (t.closest('[data-rejoin]')) {
+      if (await rejoinSession(m, s)) update();
     } else if (t.closest('[data-memo]')) {
       editMemo(s, update);
     } else if (t.closest('[data-share-out]')) {
