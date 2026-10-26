@@ -5,7 +5,7 @@ import { matches } from '../search.js';
 import { esc, md } from '../ui.js';
 import { showThumbs, bindViewer } from '../images.js';
 import { navigate } from '../nav.js';
-import { startSession, cautionCard } from './judge.js';
+import { startSession, cautionCard, importSheet } from './judge.js';
 
 const TYPE_LABEL = { juggler: 'ジャグラー', atype: 'Aタイプ', at: 'AT機', memo: 'メモ' };
 let query = '';
@@ -17,6 +17,7 @@ export function render(root, args, ctx) {
   const all = [...catalog.machines()].sort((a, b) => a.kana.localeCompare(b.kana, 'ja'));
   const types = [...new Set(all.map(m => m.type))];
   root.innerHTML = `
+    <button type="button" class="row" data-share-in style="margin-bottom:10px"><span class="row-main">共有された値で始める</span><span class="row-sub">もらった文字列を読み込む（機種も入っているので選ばなくてよい）</span></button>
     <input class="search" type="search" placeholder="機種名・読み・略称" value="${esc(query)}" data-q>
     ${types.length > 1 ? `<div class="chips" data-types>${['', ...types].map(t =>
       `<button type="button" class="chip ${t === typeFilter ? 'on' : ''}" data-type="${esc(t)}">${t ? esc(TYPE_LABEL[t] || t) : 'すべて'}</button>`).join('')}</div>` : ''}
@@ -30,6 +31,7 @@ export function render(root, args, ctx) {
       || `<p class="empty">${all.length ? '当てはまる機種がありません' : 'まだ機種がありません（PC の src\\machines に足して書き出す）'}</p>`;
   };
   draw();
+  root.querySelector('[data-share-in]').addEventListener('click', importSheet);
   root.querySelector('[data-q]').addEventListener('input', e => { query = e.target.value; draw(); });
   root.querySelector('[data-types]')?.addEventListener('click', e => {
     const b = e.target.closest('[data-type]');

@@ -453,13 +453,13 @@ function shareSheet(s) {
     } else {
       if (!(await copyText(text))) return;
       sheet.close(true);
-      toast('コピーしました。相手は判別の「共有された値で始める」から入れます');
+      toast('コピーしました。相手は「機種」か判別の「共有された値で始める」から入れます');
     }
   });
 }
 
-/** 共有の文字列を受け取り、その値で新しく判別を始める（機種を選ぶ画面から） */
-function importSheet() {
+/** 共有の文字列を受け取り、その値で新しく判別を始める（判別の機種を選ぶ画面と、機種の一覧から） */
+export function importSheet() {
   const canRead = !!navigator.clipboard?.readText;
   const sheet = openSheet(`<div class="sheet-title">共有された値で始める</div>
     <p class="note">相手が「共有する」で作った文字列（SM2. で始まる）を読み込み、その値で新しく判別を始めます</p>
@@ -630,6 +630,24 @@ function renderSession(root, s, ctx) {
     return `<p class="note">右の％は「${esc(it.short)}」に対する割合です${roles.length ? `。「${esc(it.short)}」を＋で数えると、`
       + `${roles.map(x => `「${esc(x.short)}」`).join('・')}も 0回から数え始めます（「—」でなくなる）` : ''}</p>`;
   };
+  // 勝利の見込みの組（機種ファイルの wins。2026-10-26）: CZ・バトル中に引いた役 × その役で勝利が決まる割合（win）を足した
+  // 「小役で見込む勝利」と、勝利との差の「小役以外の勝利」を出す行。小役以外の勝利の％は、小役で勝てなかった分
+  // （入った回数 − 見込み）のうち、それ以外で勝った割合。設定ごとの値が無いので計算には入れない
+  const winRoles = it => items.filter(x => x.sec === it.sec && x.win != null);
+  const fmtTimes = v => `${Number.isInteger(v) ? v : v.toFixed(2)}回`;
+  const winRow = (key, label) => `<div class="counter c-sum">
+      <span class="c-name">${label}</span><span></span>
+      <span class="c-val" data-win="${key}"></span><span></span>
+      <span class="c-rate" data-win-rate="${key}"></span>
+    </div>`;
+  const winRows = it => winRow(`${it.id}:role`, '小役で見込む勝利') + winRow(`${it.id}:other`, '小役以外の勝利');
+  const winNote = it => {
+    const w = esc(items.find(x => x.id === it.wins)?.short ?? '');
+    return `<p class="note">右の％は「${esc(it.short)}」に対する割合です。役の欄は勝利が決まる前に引いた回数で、右はその役から見込む勝利`
+      + `（回数 × ${winRoles(it).map(x => `${esc(x.short)} ${x.win}%`).join('・')}）。「小役で見込む勝利」はその和、`
+      + `「小役以外の勝利」は「${w}」から見込みを引いた回数で、その右の％は、小役で勝てなかった分（入った回数 − 見込み）のうち`
+      + 'それ以外で勝った割合です（目安。計算には入れません）</p>';
+  };
   // 1回ごとにどれか1つの組（exclusive。2026-10-19）: 項目は分母の1回ごとにどれか1つなので、計算は組でまとめた多項分布。出すだけの行の中身も書く
   const exclNote = it => {
     const roles = rolesOf(it.id).map(x => `「${esc(x.short)}」`);
@@ -685,11 +703,13 @@ function renderSession(root, s, ctx) {
   const sectionHtml = (sec, k) => {
     const per = sec.items.find(it => PER[it.per])?.per;
     const unof = sec.items.some(it => it.unofficial);
-    const body = imagesHtml(sec) + sec.items.map(counter).join('') + jumps('cnt')
+    const winsOf = sec.items.filter(it => it.group === 'games' && it.wins);
+    const body = imagesHtml(sec) + sec.items.map(counter).join('') + winsOf.map(winRows).join('') + jumps('cnt')
       + (unof ? '<p class="note excl" data-unof-off hidden>未公表の値を「入れない」にしているので、この組は計算に入れていません</p>' : '')
       + (per ? `<p class="note">右の％は、自分の ${PER[per]} の回数に対する割合です</p>` : '')
       + refNote(sec)
-      + sec.items.filter(it => it.group === 'games' && it.counter).map(countNote).join('')
+      + sec.items.filter(it => it.group === 'games' && it.counter && !it.wins).map(countNote).join('')
+      + winsOf.map(winNote).join('')
       + sec.items.filter(it => it.group === 'games' && it.excl).map(exclNote).join('')
       + sec.items.filter(it => it.of).map(atNote).join('')
       + sec.items.filter(it => it.group === 'bonus' && J.never(m, it).length).map(neverNote).join('')
@@ -843,6 +863,8 @@ function renderSession(root, s, ctx) {
       if (it.group === 'derived') { const g = s.counts[it.per] || 0; return g > 0 && k != null ? fmtPct(k / g) : '—'; }
       // per = "games" の組の ± で数える分母の欄は、自分の G数に対する 1/N（2026-10-17）
       if (it.group === 'games') return it.per === 'games' ? (myG > 0 && k > 0 ? fmtDen(myG / k) : '—') : '';
+      // 勝利の見込みの組の役は、その役から見込む勝利（回数 × その役で勝利が決まる割合）
+      if (it.win != null) return k != null ? fmtTimes(k * it.win / 100) : '—';
       if (it.group === 'hint' || it.group === 'tally') {
         const c = counterOf(it);
         if (c) { const g = s.counts[c.id] || 0; return g > 0 && k != null ? fmtPct(k / g) : '—'; }
@@ -861,6 +883,17 @@ function renderSession(root, s, ctx) {
       const k = J.countOf(m, it, s.counts);
       setText(`[data-count="${it.id}"]`, it.group === 'games' ? fmtInt(k) : k == null ? '—' : String(k));
       setText(`[data-rate="${it.id}"]`, rateText(it, k));
+    }
+    // 勝利の見込みの組: 小役で見込む勝利（入った回数に対する％）と、小役以外の勝利（小役で勝てなかった分に対する％）
+    for (const c of items.filter(x => x.group === 'games' && x.wins)) {
+      const n = s.counts[c.id] || 0;
+      const exp = winRoles(c).reduce((a, x) => a + (s.counts[x.id] || 0) * x.win / 100, 0);
+      const k = J.countOf(m, items.find(x => x.id === c.wins), s.counts);
+      const other = n > 0 && k != null ? k - exp : null;
+      setText(`[data-win="${c.id}:role"]`, n > 0 ? fmtTimes(exp) : '—');
+      setText(`[data-win-rate="${c.id}:role"]`, n > 0 ? fmtPct(exp / n) : '—');
+      setText(`[data-win="${c.id}:other"]`, other == null ? '—' : fmtTimes(other));
+      setText(`[data-win-rate="${c.id}:other"]`, other != null && n - exp > 0 ? fmtPct(Math.max(0, other) / (n - exp)) : '—');
     }
     // 後から内訳が分かる組で、見られる種別が全部分かれば合算は種別の和（±を隠し、押しても直せない）
     for (const sp of J.splits(m)) {
