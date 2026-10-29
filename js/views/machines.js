@@ -1,4 +1,4 @@
-// 機種の一覧と詳細（メモ・スペック表・天井・狙い目）。詳細から判別・ぶどう逆算へ移れる
+// 機種の一覧と詳細（メモ・スペック表・天井・狙い目・高設定）。詳細から判別・ぶどう逆算へ移れる
 import * as catalog from '../catalog.js';
 import * as J from '../juggler.js';
 import { matches } from '../search.js';
@@ -42,8 +42,9 @@ export function render(root, args, ctx) {
   });
 }
 
-// メモのうち「## 天井・狙い目…」の節は、メモから外して「天井・狙い目」の切り替えに出す
+// メモのうち「## 天井・狙い目…」の節は、メモから外して「天井・狙い目」の切り替えに出す。「## 高設定の挙動…」も同じく「高設定」へ
 const HUNT_TITLE = /^天井・狙い目/;
+const HIGH_TITLE = /^高設定の挙動/;
 
 const secHtml = (title, body) =>
   `<section class="memo-sec">${title ? `<h3>${esc(title)}</h3>` : ''}<div class="memo-body">${md(body)}</div></section>`;
@@ -97,22 +98,25 @@ function detail(root, id, tab, ctx) {
   const judge = J.isJudgeable(m);
   const sections = m.sections || [];
   const hunt = sections.find(s => HUNT_TITLE.test(s.title));
-  const tabs = [['', 'メモ'], ...(judge ? [['spec', 'スペック表']] : []), ...(hunt || m.hunt ? [['hunt', '天井・狙い目']] : [])];
+  const high = sections.find(s => HIGH_TITLE.test(s.title));
+  const tabs = [['', 'メモ'], ...(judge ? [['spec', 'スペック表']] : []), ...(hunt || m.hunt ? [['hunt', '天井・狙い目']] : []),
+    ...(high ? [['high', '高設定']] : [])];
   const cur = tabs.some(t => t[0] === tab) ? tab : '';
   const showSpec = cur === 'spec';
   const base = `#/machines/${encodeURIComponent(m.id)}`;
   const info = [TYPE_LABEL[m.type] || m.type, m.maker, m.aliases?.length ? '別名 ' + m.aliases.join('・') : ''].filter(Boolean).join(' · ');
   const payout = showSpec ? J.payoutHtml(m) : '';
-  const memoSecs = sections.filter(s => s !== hunt);
+  const memoSecs = sections.filter(s => s !== hunt && s !== high);
   const memo = memoSecs.length
     ? memoSecs.map(s => secHtml(s.title, s.body)).join('')
     : '<p class="empty">メモはまだありません（PC の機種ファイルの下側に書きます）</p>';
   const body = showSpec ? `<section class="card">${J.specTableHtml(m)}${J.ratioNote(m)}</section>${J.breakdownHtml(m)}`
-    : cur === 'hunt' ? (m.hunt ? huntHtml(m.hunt) : '') + (hunt ? subSecHtml(hunt.body) : '') : memo;
+    : cur === 'hunt' ? (m.hunt ? huntHtml(m.hunt) : '') + (hunt ? subSecHtml(hunt.body) : '')
+    : cur === 'high' ? subSecHtml(high.body) : memo;
   root.innerHTML = `
     <p class="sub">${esc(info)}</p>
     ${cautionCard(m)}
-    ${tabs.length > 1 ? `<div class="seg ${tabs.length > 2 ? 'three' : ''}">${tabs.map(([k, label]) =>
+    ${tabs.length > 1 ? `<div class="seg ${tabs.length > 3 ? 'four' : tabs.length > 2 ? 'three' : ''}">${tabs.map(([k, label]) =>
       `<a href="${k ? `${base}/${k}` : base}" class="${k === cur ? 'on' : ''}">${label}</a>`).join('')}</div>` : ''}
     ${body}
     ${payout ? `<section class="card"><div class="card-title">機械割</div>${payout}</section>` : ''}

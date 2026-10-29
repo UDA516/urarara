@@ -178,6 +178,9 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .badge-play { background: var(--accent-soft); color: var(--accent); }
 .seg { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; }
 .seg.three { grid-template-columns: 1fr 1fr 1fr; }
+/* 4つのときは文字を小さく・横の余白を詰めて、360px でも1行に収める（行の高さは 15px×1.55 のままで押す高さを変えない） */
+.seg.four { grid-template-columns: 1fr 1fr 1fr 1fr; }
+.seg.four a { padding: 9px 2px; font-size: 13px; line-height: 23.25px; white-space: nowrap; }
 .seg a { padding: 9px; text-align: center; color: var(--text-dim); font-weight: 700; text-decoration: none; }
 .seg a.on { background: var(--accent-soft); color: var(--accent); }
 .seg button { padding: 9px; background: transparent; border: 0; color: var(--text-dim); font-weight: 700; }
