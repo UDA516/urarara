@@ -104,6 +104,8 @@ export const countOf = (m, it, counts) => (isA(m) ? A.countOf(m, it, counts) : m
 export const splitOf = (m, id) => (isA(m) ? A.splitOf(m, id) : null);
 export const splitState = A.splitState;
 export const partCount = A.partCount;
+/** 分けて数え合算も出す組（A タイプ・AT機の each）の、合算の行の回数と分母 */
+export const totalOf = A.totalOf;
 
 /** 判別を始める前に出す注意。表から分かること（内訳が無い など）に、機種ファイルの cautions
  *  （データがそろっていない・合っていないところ）を足す。ジャグラーの型でない機種は cautions だけ */
@@ -312,6 +314,8 @@ export function measures(m, s) {
   }
   // 1回ごとにどれか1つの組の、数えずに出す行（足した行・分母の残りの行）は、その組の分母の欄に対して
   for (const it of myItems(m).filter(x => x.group === 'derived')) mine[it.id] = den(s.counts?.[it.per] || 0, countOf(m, it, s.counts));
+  // 分けて数え合算も出す組（each）の、項目の合算の行は、数えている行の分母の和に対して
+  for (const it of myItems(m).filter(x => x.group === 'total' && x.per)) { const t = A.totalOf(m, it, s.counts); mine[it.id] = den(t.g, t.k); }
   const all = {
     big: den(st.totalG, st.all.big), reg: den(st.totalG, st.all.reg), combo: den(st.totalG, st.all.big + st.all.reg),
     br: ratio(st.all.big, st.all.reg),

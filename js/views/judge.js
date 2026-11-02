@@ -575,17 +575,18 @@ function renderSession(root, s, ctx) {
   // 単独では見られない種別（hidden）は欄を出さず、まとめた行（rest）は数える欄ではなく 合算 − 分かった種別 を出す行。
   // 1回ごとにどれか1つの組の、足した行・分母の残りの行（derived）も、数える欄ではなく出すだけの行。
   // 小役・合算は、数字が入るまで「—」（数えていない。計算に入れない）。
-  // G数の欄でも、ゾーンに届いた回数・レア役の回数のようなもの（counter）は ± で数える（AT機。2026-10-13）
+  // G数の欄でも、ゾーンに届いた回数・レア役の回数のようなもの（counter）は ± で数える（AT機。2026-10-13）。
+  // 分けて数え合算も出す組（each。2026-11-02）の合算の行（total）も出すだけの行。区切りの頭の欄と合算の行の上に線を引く（c-lead）
   const counter = it => (it.group === 'games' && !it.counter
     ? `<button type="button" class="field c-games" data-edit-count="${it.id}"><span class="k">${esc(it.short)}</span><b data-count="${it.id}"></b></button>`
     : it.hidden ? ''
-    : it.group === 'rest' || it.group === 'derived'
-    ? `<div class="counter c-sum">
+    : it.group === 'rest' || it.group === 'derived' || it.group === 'total'
+    ? `<div class="counter c-sum${it.group === 'total' && !it.per ? ' c-lead' : ''}">
       <span class="c-name">${esc(it.short)}</span><span></span>
       <span class="c-val" data-count="${it.id}"></span><span></span>
       <span class="c-rate" data-rate="${it.id}"></span>
     </div>`
-    : `<div class="counter" data-counter="${it.id}">
+    : `<div class="counter${it.lead ? ' c-lead' : ''}" data-counter="${it.id}">
       <span class="c-name">${esc(it.short ?? it.label)}</span>
       <button type="button" class="c-btn minus" data-dec="${it.id}" aria-label="${esc(it.label)}を1減らす">−</button>
       <button type="button" class="c-val" data-edit-count="${it.id}" data-count="${it.id}"></button>
@@ -658,8 +659,22 @@ function renderSession(root, s, ctx) {
       + `計算は組でまとめた多項分布です${rows.length ? `。${rows.join('、')}です（数える欄ではありません）` : ''}</p>`;
   };
   // 分母の欄のある組の示唆・数えるだけの項目は、その分母に対する割合を出す（2026-10-15。ボイスの割合などを、
-  // 設定ごとの値が無いので計算には入れず、メモの実戦値と見比べる）
-  const counterOf = it => items.find(x => x.sec === it.sec && x.group === 'games' && x.counter);
+  // 設定ごとの値が無いので計算には入れず、メモの実戦値と見比べる）。分けて数える組（each）の項目は、自分の区切りの分母（per）
+  const counterOf = it => (it.per && counterIds.has(it.per) ? items.find(x => x.id === it.per)
+    : items.find(x => x.sec === it.sec && x.group === 'games' && x.counter));
+  // 分けて数え合算も出す組（each）。右の％は区切りの頭の欄に対する割合、合算の行は分けた行の和。前の記録で分けずに
+  // 数えた値（合算の行の id に入っている）は、どの区切りの分か分からないので合算にだけ入る
+  const eachNote = sec => {
+    const base = sec.items.find(it => it.group === 'total' && !it.per);
+    if (!base) return '';
+    const leads = sec.items.filter(it => it.lead).map(it => `「${esc(it.short)}」`);
+    const roles = sec.items.some(it => it.group === 'role' && it.total);
+    const old = sec.items.filter(it => it.group === 'total' && s.counts[it.id] > 0).map(it => `「${esc(it.short)}」に${s.counts[it.id]}回`);
+    return `<p class="note">右の％は、区切りの頭の欄（${leads.join('・')}）に対する割合です。「合算」の行は区切りごとに数えた行の和で、`
+      + `数える欄ではありません（合算の％は「${esc(base.short)}」に対する割合）`
+      + `${roles ? '。区切りの頭の欄を＋で数えると、その区切りの項目も 0回から数え始めます（「—」でなくなる）' : ''}</p>`
+      + (old.length ? `<p class="note">前の記録で区切らずに数えた分（${old.join('・')}）は、どの区切りの分か分からないので合算の行にだけ入っています</p>` : '');
+  };
   // 通常時と AT中で分けて数える小役（2026-10-14。AT中も見分けられる共通ベルなど）。AT中の分母は 自分の総G − 自分の通常G
   const atNote = it => {
     const base = items.find(x => x.id === it.of);
@@ -700,15 +715,22 @@ function renderSession(root, s, ctx) {
     const list = [...new Set(sec.items.map(it => it.sec))].flatMap(t => m.groupImages?.[t] || []);
     return list.length ? `<details class="img-fold"><summary>画像（${list.length}枚）</summary>${imgGridHtml(list)}</details>` : '';
   };
+  // 組の説明（どういうときに起こるか・いつ数えるか。機種ファイルの [[count]] の note。2026-11-02）。縦に長くならないよう、
+  // 画像と同じく見出しのすぐ下に「説明」としてたたんで出す
+  const groupNoteHtml = sec => {
+    const list = [...new Set(sec.items.map(it => it.sec))].map(t => m.groupNotes?.[t]).filter(Boolean);
+    return list.length ? `<details class="img-fold group-note"><summary>説明</summary>${list.map(t => `<p class="note">${esc(t)}</p>`).join('')}</details>` : '';
+  };
   const sectionHtml = (sec, k) => {
     const per = sec.items.find(it => PER[it.per])?.per;
     const unof = sec.items.some(it => it.unofficial);
     const winsOf = sec.items.filter(it => it.group === 'games' && it.wins);
-    const body = imagesHtml(sec) + sec.items.map(counter).join('') + winsOf.map(winRows).join('') + jumps('cnt')
+    const body = groupNoteHtml(sec) + imagesHtml(sec) + sec.items.map(counter).join('') + winsOf.map(winRows).join('') + jumps('cnt')
       + (unof ? '<p class="note excl" data-unof-off hidden>未公表の値を「入れない」にしているので、この組は計算に入れていません</p>' : '')
       + (per ? `<p class="note">右の％は、自分の ${PER[per]} の回数に対する割合です</p>` : '')
       + refNote(sec)
-      + sec.items.filter(it => it.group === 'games' && it.counter && !it.wins).map(countNote).join('')
+      + sec.items.filter(it => it.group === 'games' && it.counter && !it.wins && !it.lead).map(countNote).join('')
+      + eachNote(sec)
       + winsOf.map(winNote).join('')
       + sec.items.filter(it => it.group === 'games' && it.excl).map(exclNote).join('')
       + sec.items.filter(it => it.of).map(atNote).join('')
@@ -861,6 +883,8 @@ function renderSession(root, s, ctx) {
       if (it.group === 'sum' || it.group === 'rest') return fmtDen(meas.mine[it.id]);
       // 1回ごとにどれか1つの組の、出すだけの行は、組の分母の欄に対する %
       if (it.group === 'derived') { const g = s.counts[it.per] || 0; return g > 0 && k != null ? fmtPct(k / g) : '—'; }
+      // 分けて数え合算も出す組の合算の行。項目は数えている区切りの分母の和に対する %、分母の合算は出さない
+      if (it.group === 'total') { if (!it.per) return ''; const t = J.totalOf(m, it, s.counts); return t.g > 0 && t.k != null ? fmtPct(t.k / t.g) : '—'; }
       // per = "games" の組の ± で数える分母の欄は、自分の G数に対する 1/N（2026-10-17）
       if (it.group === 'games') return it.per === 'games' ? (myG > 0 && k > 0 ? fmtDen(myG / k) : '—') : '';
       // 勝利の見込みの組の役は、その役から見込む勝利（回数 × その役で勝利が決まる割合）

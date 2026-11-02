@@ -260,7 +260,8 @@ function toCsv(recs) {
   const names = { ...J.LABEL };
   for (const r of recs) {
     const m = catalog.machine(r.machineId);
-    if (m && J.isJudgeable(m)) for (const it of J.myItems(m)) names[it.id] ??= it.label;
+    // 分けて数え合算も出す組（each）の合算の行は数える欄でないので、その id の列は前の記録で分けずに数えた値だけ
+    if (m && J.isJudgeable(m)) for (const it of J.myItems(m)) names[it.id] ??= it.group === 'total' ? `${it.label}（区切らずに数えた前の値）` : it.label;
   }
   const order = Object.keys(names);
   const ids = [...new Set(recs.flatMap(r => Object.keys(r.counts || {})))]

@@ -255,6 +255,8 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 .c-sum .c-val, .counter.fixed .c-val { display: flex; align-items: center; justify-content: center; background: transparent; border-style: dashed; }
 .counter.fixed .c-btn { visibility: hidden; }
 .counter.fixed .c-val { cursor: default; }
+/* 分けて数え合算も出す組（each）の区切りの頭の欄と、合算の行の上の線 */
+.counter + .c-lead { border-top: 2px solid var(--border-strong); }
 /* 示唆で設定を外しているとき */
 .note.excl { color: var(--warn); font-weight: 700; }
 

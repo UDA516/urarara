@@ -39,7 +39,8 @@ export const mainTitle = m => (hasCombo(m) && !renamed(m) ? 'ボーナス' : `${
  *   sum（合算）・rest（見えない種別をまとめた行）は、後から内訳が分かる組のもの。その組の小役（split を持つ。
  *   hidden は単独では見られない種別）と合わせて計算する（splitLL）。
  *   derived（数えずに、同じ組の項目から出す行。足した行と分母の残りの行）は、1回ごとにどれか1つの組（excl）のもの。
- *   その組の小役は1つずつでなく組でまとめて計算する（exclusiveLL） */
+ *   その組の小役は1つずつでなく組でまとめて計算する（exclusiveLL）。
+ *   total（数えずに、分けて数えた行の和を出す合算の行）は、分けて数え合算も出す組（機種ファイルの each）のもの。計算には入らない */
 export const isProb = it => it.group === 'bonus' || it.group === 'role';
 
 /** 「—」（数えていない）を持てる項目。小役と合算は、数字が入るまで計算に入れない（入れば 0回も「引かなかった」として入れる）。
@@ -47,8 +48,10 @@ export const isProb = it => it.group === 'bonus' || it.group === 'role';
  *  0回と読むと 5以上 0.7%、数えない扱いなら 49.1%）。ボーナスは必ず気づくので 0回 ＝ 引かなかった のまま */
 export const optional = it => it.group === 'role' || it.group === 'sum';
 
-/** 表に確率の列がある項目（要素ごと・設定差の表に出せる）。合算・まとめた行も列を持つ */
-const hasCol = it => isProb(it) || it.group === 'sum' || it.group === 'rest' || it.group === 'derived';
+/** 表に確率の列がある項目（要素ごと・設定差の表に出せる）。合算・まとめた行も列を持つ。分けて数えた行は、
+ *  どれも同じ値なら合算の行の列だけ出す（同じ列が並ぶため。値が違えば合算の行に値が無く、分けた行の列を出す） */
+const hasCol = (m, it) => (isProb(it) || it.group === 'sum' || it.group === 'rest' || it.group === 'derived' || it.group === 'total')
+  && !(it.total && m.table?.[it.total]);
 
 export const items = m => m.items || [];
 
@@ -146,6 +149,7 @@ export function splitState(sp, counts) {
  *  ほかの小役は数字が入っているときだけ（「—」は null）。ボーナスなどは数えた回数（無ければ 0） */
 export function countOf(m, it, counts) {
   if (it.group === 'derived') return derivedCount(it, counts);
+  if (it.group === 'total') return totalOf(m, it, counts).k;
   const sp = m && (it.group === 'sum' || it.group === 'rest' || it.split) ? splitOf(m, it.id) : null;
   if (!sp) return optional(it) ? partCount(counts, it.id) : counts?.[it.id] || 0;
   const st = splitState(sp, counts);
@@ -216,6 +220,26 @@ export function derivedCount(it, counts) {
   return n > 0 ? Math.max(0, n - sum) : null;
 }
 
+// ---------------------------------------------------------------- 分けて数え、合算も出す組（機種ファイルの each。2026-11-02）
+// 分母の欄（± で数える到達の回数など）と項目を、並びの1つごと（規定G数の 100G・300G… など）に分けて数え、合算の行は
+// 分けた行の和を出す（数える欄ではない。同じものを2回数えないため）。合算の行の id は分ける前の id のままで、前の記録で
+// 分けずに数えた値（counts のその id）は、どの行の分か分からないので合算にだけ足す（新しく数えた判別には入らない）
+
+/** 合算の行の回数 k と、項目の合算の割合の分母 g。分母の欄の合算（per の無い行）は k がその和で g は null。
+ *  項目の合算は、「—」（数えていない）の行をその行の分母ごと外す。全部「—」なら k は null */
+export function totalOf(m, it, counts) {
+  const own = Number.isFinite(counts?.[it.id]) ? counts[it.id] : null;   // 前の記録で分けずに数えた値
+  if (!it.per) return { k: it.parts.reduce((a, id) => a + (counts?.[id] || 0), own ?? 0), g: null };
+  const list = items(m);
+  const rows = it.parts.map(id => list.find(x => x.id === id)).filter(Boolean)
+    .map(p => ({ k: countOf(m, p, counts), g: counts?.[p.per] || 0 }));
+  // 前の値は、分けた行と同じ読み（数えるだけの項目は「—」も 0回、確率のある項目は「—」なら外す）
+  const opt = list.some(x => x.total === it.id && optional(x));
+  rows.push({ k: own ?? (opt ? null : 0), g: counts?.[it.per] || 0 });
+  const used = rows.filter(r => r.k != null);
+  return used.length ? { k: used.reduce((a, r) => a + r.k, 0), g: used.reduce((a, r) => a + r.g, 0) } : { k: null, g: 0 };
+}
+
 /** 要素ごとの表の行。合算・BIG・REG と、設定差のある項目（無いものはどの設定にも同じ近さで、出しても意味が無い）。
  *  sec は組の名前（組ごとにたためる表にする）、label は組の中での名前 */
 export function elementRows(m) {
@@ -224,7 +248,7 @@ export function elementRows(m) {
     ...(hasCombo(m) ? [{ c: 'combo', label: N.combo || 'ボーナス合算', both, sec: main }] : []),
     { c: 'big', label: N.big, both, sec: main },
     { c: 'reg', label: N.reg, both, sec: main },
-    ...items(m).filter(it => hasCol(it) && !it.hidden && !it.of && !plainBonus(m, it) && varies(m, it.id))
+    ...items(m).filter(it => hasCol(m, it) && !it.hidden && !it.of && !plainBonus(m, it) && varies(m, it.id))
       .map(it => ({ c: it.id, label: colLabel(m, it), both: false, sec: groupTitle(it), ...(it.pct ? { pct: true } : {}) })),
   ];
 }
@@ -249,7 +273,7 @@ export function specGroups(m) {
     { c: 'reg', label: lab('reg', 'RB確率'), text: v => v.toFixed(1) },
   ].filter(c => Array.isArray(m.table[c.c])));
   const groups = [{ title: mainTitle(m), cols: head }];
-  for (const it of items(m).filter(it => hasCol(it) && m.table[it.id] && !it.of && !plainBonus(m, it))) {
+  for (const it of items(m).filter(it => hasCol(m, it) && m.table[it.id] && !it.of && !plainBonus(m, it))) {
     const title = groupTitle(it);
     let g = groups.find(x => x.title === title);
     if (!g) groups.push(g = { title, cols: [] });
