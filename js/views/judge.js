@@ -595,10 +595,11 @@ function renderSession(root, s, ctx) {
     </div>`);
   // 組ごとに見出しを付ける。ジャグラーはボーナス（契機）と小役の2つ、A タイプは機種ファイルの組（sec）。
   // A タイプで契機の内訳が無いボーナス（組に BIG・REG が1つだけ）は、まとめて「ボーナス」の組に（AT機は「ST・CZ」のように）。
-  // 回数を計算に入れない組（ref）は「（内訳）」（中身は契機でなく種類のことが多いため）
+  // 回数を計算に入れない組（ref）は「（内訳）」（中身は契機でなく種類のことが多いため）。契機の分からないボーナスの欄（unknown）も同じ組に
   const sections = [];
   for (const it of items) {
-    const title = it.sec ? (it.group === 'bonus' ? (J.plainBonus(m, it) ? J.mainTitle(m) : `${it.sec}（${it.ref ? '内訳' : '契機'}）`) : it.sec)
+    const bonus = it.group === 'bonus' || it.group === 'unknown';
+    const title = it.sec ? (bonus ? (J.plainBonus(m, it) ? J.mainTitle(m) : `${it.sec}（${it.ref ? '内訳' : '契機'}）`) : it.sec)
       : (it.group === 'bonus' ? '自分のボーナス（契機）' : '自分の小役');
     let sec = sections.find(x => x.title === title);
     if (!sec) sections.push(sec = { title, items: [] });
@@ -609,6 +610,9 @@ function renderSession(root, s, ctx) {
   // その設定では出ないボーナス（A タイプの flags 0。高設定でしか出ない契機）
   const settingsText = idx => `設定${idx.map(i => m.settings[i]).join('・')}`;
   const neverNote = it => `<p class="note">「${esc(it.short)}」は${esc(settingsText(J.never(m, it)))}では出ないので、1回でも数えたらその設定を外して計算します</p>`;
+  // 契機の分からないボーナス（機種ファイルの unknown。2026-11-04）。組の契機のどれかとして計算に入れ、BIG・REG の回数にも入る
+  const unknownNote = it => `<p class="note">「${esc(it.short)}」は、契機（同時に引いた小役など）が分からなかった${esc(it.sec)}を数えます。`
+    + `${esc(N[it.kind])}の回数に入り、計算には契機（${items.filter(x => it.parts?.includes(x.id)).map(x => `「${esc(x.short)}」`).join('・')}）のどれかとして入れます</p>`;
   const PER = { big: N.big, reg: N.reg };   // 数えるだけの項目の割合の分母（per）
   // 回数を計算に入れない組（ref。AT機の CZ は ST と重なる）。内訳が2つ以上なら、その割合だけ入れる
   const refNote = sec => {
@@ -735,6 +739,7 @@ function renderSession(root, s, ctx) {
       + sec.items.filter(it => it.group === 'games' && it.excl).map(exclNote).join('')
       + sec.items.filter(it => it.of).map(atNote).join('')
       + sec.items.filter(it => it.group === 'bonus' && J.never(m, it).length).map(neverNote).join('')
+      + sec.items.filter(it => it.group === 'unknown').map(unknownNote).join('')
       + sec.items.filter(it => it.group === 'hint').map(hintNote).join('')
       + sec.items.filter(it => it.group === 'sum').map(splitNote).join('');
     const sum = sec.items.some(it => it.group === 'bonus') ? `<span class="fold-sum" data-fold-sum="${k}"></span>` : '';
@@ -897,7 +902,7 @@ function renderSession(root, s, ctx) {
         const g = t ? s.counts[t.id] || 0 : it.per === 'games' ? myG : 0;
         return (t || it.per === 'games') && g > 0 && k > 0 ? fmtDen(g / k) : '—';
       }
-      if (it.group !== 'bonus' && it.group !== 'role') return '—';
+      if (it.group !== 'bonus' && it.group !== 'role' && it.group !== 'unknown') return '—';
       const g = J.gamesOf(it, s);   // AT中の欄（of）は 自分の総G − 自分の通常G
       // ± で数える分母の欄（到達の回数など）に対する項目は %（0回も 0%）
       if (it.per && counterIds.has(it.per)) return g > 0 && k != null ? fmtPct(k / g) : '—';
@@ -924,7 +929,7 @@ function renderSession(root, s, ctx) {
       root.querySelector(`[data-counter="${sp.sum.id}"]`)?.classList.toggle('fixed', !J.splitState(sp, s.counts).open);
     }
     sections.forEach((sec, k) => setText(`[data-fold-sum="${k}"]`,
-      `計${sec.items.filter(it => it.group === 'bonus').reduce((a, it) => a + (s.counts[it.id] || 0), 0)}回`));
+      `計${sec.items.filter(it => it.group === 'bonus' || it.group === 'unknown').reduce((a, it) => a + (s.counts[it.id] || 0), 0)}回`));
 
     // シナリオ判別に入れたものの要素の行・上の欄のボタン・枠は、設定の確からしさ（自分）で重み付けしたシナリオの確からしさを出す
     const ws = m.scenario ? pm ?? J.posterior(m, s, false) : null;

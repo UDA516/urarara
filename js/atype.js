@@ -40,7 +40,9 @@ export const mainTitle = m => (hasCombo(m) && !renamed(m) ? 'ボーナス' : `${
  *   hidden は単独では見られない種別）と合わせて計算する（splitLL）。
  *   derived（数えずに、同じ組の項目から出す行。足した行と分母の残りの行）は、1回ごとにどれか1つの組（excl）のもの。
  *   その組の小役は1つずつでなく組でまとめて計算する（exclusiveLL）。
- *   total（数えずに、分けて数えた行の和を出す合算の行）は、分けて数え合算も出す組（機種ファイルの each）のもの。計算には入らない */
+ *   total（数えずに、分けて数えた行の和を出す合算の行）は、分けて数え合算も出す組（機種ファイルの each）のもの。計算には入らない。
+ *   unknown（契機の分からないボーナスを数える欄。機種ファイルの unknown）は、ボーナスの組のもの。kind で BIG・REG に足し、
+ *   計算には組の契機（parts）のどれかとして入れる（unknownLL） */
 export const isProb = it => it.group === 'bonus' || it.group === 'role';
 
 /** 「—」（数えていない）を持てる項目。小役と合算は、数字が入るまで計算に入れない（入れば 0回も「引かなかった」として入れる）。
@@ -107,6 +109,26 @@ export const never = (m, it) => (m.table?.[it.id] || []).flatMap((v, i) => (v ==
  *  契機の行・列には出さない（ボーナスの BIG・REG と同じものが二重に出るため）。判別の画面では「ボーナス」の組にまとめる */
 export const plainBonus = (m, it) => it.group === 'bonus'
   && items(m).filter(x => x.group === 'bonus' && x.sec === it.sec).length === 1;
+
+// ---------------------------------------------------------------- 契機の分からないボーナス（機種ファイルの unknown。2026-11-04）
+// 告知が先で小役が見えなかった・取りこぼしたボーナス。種別（組）は払い出しなどで分かるので、組の欄に ± で数え、BIG・REG にも足す。
+// 契機の分かった回数は今までどおり項目ごとの二項分布（数が少なく p が小さいので、多項分布との差はごく小さい）。その中で
+// 契機不明の1回は「組の契機のどれか」なので、確率は組の契機の p の和。どれでもないゲームの項は、契機の項目の二項分布が
+// 持っているので足さない（足すと引かなかったゲームを二重に数える）。契機不明が 0回なら何も変わらない
+
+/** 契機の分からないボーナスの欄と、その組の契機（確率のある項目）。{ it: 欄, parts: 契機の項目 } の並び */
+export function unknowns(m) {
+  const list = items(m);
+  return list.filter(it => it.group === 'unknown').map(it => ({ it, parts: list.filter(x => (it.parts || []).includes(x.id)) }));
+}
+
+/** 対数尤度（設定 i）: 契機不明の回数 · log（組の契機の p の和）。その設定では出ない契機（null）は p を 0 に */
+export function unknownLL(m, g, counts, i) {
+  const u = counts?.[g.it.id] || 0;
+  if (!(u > 0)) return 0;
+  const p = g.parts.reduce((a, it) => a + (m.table[it.id][i] > 0 ? 1 / m.table[it.id][i] : 0), 0);
+  return p > 0 ? u * Math.log(p) : -Infinity;
+}
 
 // ---------------------------------------------------------------- 後から内訳が分かる組
 // ユーザーの指示 2026-10-08（台のデータ表示の見え方）: 合算は最初から見られ、種別は条件を満たすと見られる。

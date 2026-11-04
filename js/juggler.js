@@ -194,12 +194,14 @@ export function excluded(m, s) {
  *  後から内訳が分かる組の小役は、1つずつでなく組でまとめて（A.splitLL）。
  *  回数を計算に入れないボーナスの組（ref）は、内訳の割合だけ（A.refLL）。前任者のその回数も入れない。
  *  1回ごとにどれか1つの組（excl）の小役も、組でまとめて（A.exclusiveLL。多項分布）。
+ *  契機の分からないボーナス（A タイプ・AT機の unknown）は、組の契機のどれかとして（A.unknownLL）。
  *  シナリオの選ばれやすさが設定ごとに違う機種は、シナリオ判別に入れたテーブル・示唆も（SC.settingLL。何も入れていなければ足さない） */
 export function posterior(m, s, withPrev) {
   const items = myItems(m).filter(it => isProb(it) && !it.split && !it.ref && !it.excl && !unofficialOff(s, it)
     && !(optional(it) && A.partCount(s.counts, it.id) == null));
   const refs = isA(m) ? A.refGroups(m) : [];
   const excls = isA(m) ? A.exclusives(m).filter(g => !g.parts.some(it => unofficialOff(s, it))) : [];
+  const unks = isA(m) ? A.unknowns(m) : [];
   const prevBig = !(isA(m) && A.refKind(m, 'big'));
   const prevReg = !(isA(m) && A.refKind(m, 'reg'));
   const sps = splits(m);
@@ -214,6 +216,7 @@ export function posterior(m, s, withPrev) {
       if (g > 0) ll += binomLL(s.counts?.[it.id], g, prob(colValues(m, it.id)[i]));
     }
     if (myG > 0) for (const sp of sps) ll += A.splitLL(m, sp, s.counts, myG, i);
+    if (myG > 0) for (const g of unks) ll += A.unknownLL(m, g, s.counts, i);
     for (const g of refs) ll += A.refLL(m, g, s.counts, i);
     for (const g of excls) ll += A.exclusiveLL(m, g, s.counts, i);
     if (scLL) ll += scLL[i];
