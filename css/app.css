@@ -323,6 +323,9 @@ body.locked #bar, body.locked main, body.locked #tabs { display: none; }
 /* モード判別（mode.js）。シナリオ判別の表（sc-tbl）を使い、天井の印は橙、もう無い印は線を引いて薄く */
 .md-tbl td.md-top { color: var(--warn); font-weight: 700; }
 .md-tbl td.md-x { opacity: 0.3; text-decoration: line-through; }
+/* 縦向き（行＝ゾーン・列＝モード）。次のゾーンの枠は上下の線、残らないモードは見出しと列を薄く */
+.md-v td.sc-now { box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+.md-v .md-out { opacity: 0.3; }
 
 .spec-wrap { margin: 0 -12px; padding: 0 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .spec { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; text-align: center; }

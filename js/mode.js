@@ -106,14 +106,27 @@ export function openPanel(m, s, onChange) {
 function html(m) {
   const mc = m.mode;
   const { of, kitei } = words(mc);
+  const cell = (k, j) => {
+    const it = mc.items[k];
+    return `<td data-md-cell="${k}:${j}"${it.marks[j] === '天井' ? ' class="md-top"' : ''}>${esc(it.marks[j])}</td>`;
+  };
+  // 縦向き（vertical）は行＝ゾーン・列＝モード。列が多い機種で横に長くならないように
+  const table = mc.vertical
+    ? `<table class="sc-tbl md-tbl md-v">
+      <thead><tr><th>${of}</th>${mc.items.map((it, k) => `<th data-md-row="${k}">${esc(it.label)}</th>`).join('')}</tr></thead>
+      <tbody>${mc.zones.map((z, j) => `<tr><th data-md-col="${j}">${z}</th>${mc.items.map((_, k) => cell(k, j)).join('')}</tr>`).join('')}</tbody>
+    </table>`
+    : `<table class="sc-tbl md-tbl">
+      <thead><tr><th>${esc(mc.label)}</th>${mc.zones.map((z, j) => `<th data-md-col="${j}">${z}</th>`).join('')}</tr></thead>
+      <tbody>${mc.items.map((it, k) => `<tr data-md-row="${k}"><td>${esc(it.label)}</td>${mc.zones.map((_, j) => cell(k, j)).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+  const how = mc.vertical
+    ? `左は${of}（ゾーン）、上は${esc(mc.label)}、中はその${of}が${kitei}になりうるかの印です。薄い行は通った${of}、枠の行は次のゾーン、線を引いた印はもう無いところ、薄い列は残らない${esc(mc.label)}です`
+    : `上は${of}（ゾーン）、中はその${of}が${kitei}になりうるかの印です。薄い列は通った${of}、枠の列は次のゾーン、線を引いた印はもう無いところ、薄い行は残らない${esc(mc.label)}です`;
   return `
     <div data-md-head></div>
-    <div class="spec-wrap"><table class="sc-tbl md-tbl">
-      <thead><tr><th>${esc(mc.label)}</th>${mc.zones.map((z, j) => `<th data-md-col="${j}">${z}</th>`).join('')}</tr></thead>
-      <tbody>${mc.items.map((it, k) => `<tr data-md-row="${k}"><td>${esc(it.label)}</td>${mc.zones.map((_, j) =>
-        `<td data-md-cell="${k}:${j}"${it.marks[j] === '天井' ? ' class="md-top"' : ''}>${esc(it.marks[j])}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table></div>
-    <p class="note">上は${of}（ゾーン）、中はその${of}が${kitei}になりうるかの印です。薄い列は通った${of}、枠の列は次のゾーン、線を引いた印はもう無いところ、薄い行は残らない${esc(mc.label)}です</p>
+    <div class="spec-wrap">${table}</div>
+    <p class="note">${how}</p>
     ${mc.starts.length ? `<div class="sc-sub">始まり（この${esc(mc.label)}が決まったとき）</div>
       <div class="chips">${mc.starts.map(x => `<button type="button" class="chip" data-md-start="${esc(x.id)}">${esc(x.label)}</button>`).join('')}</div>` : ''}
     <div class="group-title">区切り（${of}）</div>
@@ -169,9 +182,11 @@ function update(root, m, s) {
       <p class="note">残る${L}: ${esc(aliveText(mc, a))}${a.now ? `（${a.now}${U} まで入れたところ）` : ''}</p>`;
   }
   mc.items.forEach((it, k) => {
-    root.querySelector(`[data-md-row="${k}"]`).classList.toggle('sc-out', !a.alive[k]);
+    // 残らないモード: 横向きは行ごと、縦向きは見出しとその列の印を薄くする
+    root.querySelector(`[data-md-row="${k}"]`).classList.toggle(mc.vertical ? 'md-out' : 'sc-out', !a.alive[k]);
     mc.zones.forEach((z, j) => {
       const td = root.querySelector(`[data-md-cell="${k}:${j}"]`);
+      if (mc.vertical) td.classList.toggle('md-out', !a.alive[k]);
       td.classList.toggle('md-x', !!it.marks[j] && a.alive[k] && !a.zones[k].includes(z));
       td.classList.toggle('sc-done', z <= a.now && z !== a.hit);
       td.classList.toggle('sc-now', z === (a.hit ?? a.next));
