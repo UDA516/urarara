@@ -57,6 +57,17 @@ const hasCol = (m, it) => (isProb(it) || it.group === 'sum' || it.group === 'res
 
 export const items = m => m.items || [];
 
+/** 分母の無い組の名前（sec）の集まり（2026-11-06）: 示唆・数えるだけの項目（hint・tally）だけで、どの項目にも per が無く、
+ *  G数の欄（games）も無い組（ボイス・終了画面など。項目が2つ以上）。判別の画面では、項目の回数 ÷ 組の項目の回数の和
+ *  （組の合計に対する割合）を出す。ユーザーの指示「デフォルトがでた回数なども全体での割合でみる」で、デフォルトも
+ *  数えるようにしたため（合計が出た回数の全部になる）。計算には入れない */
+export function shareSecs(m) {
+  const by = new Map();
+  for (const it of items(m)) if (it.sec) by.set(it.sec, [...(by.get(it.sec) || []), it]);
+  return new Set([...by].filter(([, list]) => list.length > 1
+    && list.every(it => (it.group === 'hint' || it.group === 'tally') && !it.per)).map(([sec]) => sec));
+}
+
 const varies = (m, c) => Array.isArray(m.table?.[c]) && m.table[c].some(v => (v == null) !== (m.table[c][0] == null) || Math.abs(v - m.table[c][0]) > 1e-9);
 
 /** 通常時と AT中で分けて数える小役（2026-10-14。AT中も見分けられる共通ベルなど）。元の項目は at に AT中の欄の id を、AT中の欄は of に

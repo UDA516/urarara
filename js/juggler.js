@@ -106,6 +106,8 @@ export const splitState = A.splitState;
 export const partCount = A.partCount;
 /** 分けて数え合算も出す組（A タイプ・AT機の each）の、合算の行の回数と分母 */
 export const totalOf = A.totalOf;
+/** 分母の無い組（示唆・数えるだけの項目だけの組）の名前。判別の画面で組の合計に対する割合を出す（2026-11-06） */
+export const shareSecs = m => (isA(m) ? A.shareSecs(m) : new Set());
 
 /** 判別を始める前に出す注意。表から分かること（内訳が無い など）に、機種ファイルの cautions
  *  （データがそろっていない・合っていないところ）を足す。ジャグラーの型でない機種は cautions だけ */

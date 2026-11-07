@@ -666,6 +666,10 @@ function renderSession(root, s, ctx) {
   // 設定ごとの値が無いので計算には入れず、メモの実戦値と見比べる）。分けて数える組（each）の項目は、自分の区切りの分母（per）
   const counterOf = it => (it.per && counterIds.has(it.per) ? items.find(x => x.id === it.per)
     : items.find(x => x.sec === it.sec && x.group === 'games' && x.counter));
+  // 分母の無い組（示唆・数えるだけの項目だけで、per も G数の欄も無い組。ボイス・終了画面など）は、組の回数の合計に対する割合
+  // （2026-11-06 ユーザーの指示「デフォルトがでた回数なども全体での割合でみる」。デフォルトも数えるので、合計が出た回数の全部になる）
+  const shares = J.shareSecs(m);
+  const shareSum = t => items.reduce((a, x) => a + (x.sec === t ? s.counts[x.id] || 0 : 0), 0);
   // 分けて数え合算も出す組（each）。右の％は区切りの頭の欄に対する割合、合算の行は分けた行の和。前の記録で分けずに
   // 数えた値（合算の行の id に入っている）は、どの区切りの分か分からないので合算にだけ入る
   const eachNote = sec => {
@@ -732,6 +736,7 @@ function renderSession(root, s, ctx) {
     const body = groupNoteHtml(sec) + imagesHtml(sec) + sec.items.map(counter).join('') + winsOf.map(winRows).join('') + jumps('cnt')
       + (unof ? '<p class="note excl" data-unof-off hidden>未公表の値を「入れない」にしているので、この組は計算に入れていません</p>' : '')
       + (per ? `<p class="note">右の％は、自分の ${PER[per]} の回数に対する割合です</p>` : '')
+      + (shares.has(sec.items[0].sec) ? `<p class="note">右の％は、この組で数えた回数の合計（今 <b data-share-sum="${k}"></b>回）に対する割合です</p>` : '')
       + refNote(sec)
       + sec.items.filter(it => it.group === 'games' && it.counter && !it.wins && !it.lead).map(countNote).join('')
       + eachNote(sec)
@@ -895,6 +900,7 @@ function renderSession(root, s, ctx) {
       // 勝利の見込みの組の役は、その役から見込む勝利（回数 × その役で勝利が決まる割合）
       if (it.win != null) return k != null ? fmtTimes(k * it.win / 100) : '—';
       if (it.group === 'hint' || it.group === 'tally') {
+        if (shares.has(it.sec)) { const all = shareSum(it.sec); return all > 0 ? fmtPct((k || 0) / all) : '—'; }
         const c = counterOf(it);
         if (c) { const g = s.counts[c.id] || 0; return g > 0 && k != null ? fmtPct(k / g) : '—'; }
         // テンキーで入れる G数の欄のある組はその G数、per = "games" の組は自分の G数に対する 1/N（設定1 の値と見比べる）
@@ -930,6 +936,7 @@ function renderSession(root, s, ctx) {
     }
     sections.forEach((sec, k) => setText(`[data-fold-sum="${k}"]`,
       `計${sec.items.filter(it => it.group === 'bonus' || it.group === 'unknown').reduce((a, it) => a + (s.counts[it.id] || 0), 0)}回`));
+    sections.forEach((sec, k) => { if (shares.has(sec.items[0].sec)) setText(`[data-share-sum="${k}"]`, String(shareSum(sec.items[0].sec))); });
 
     // シナリオ判別に入れたものの要素の行・上の欄のボタン・枠は、設定の確からしさ（自分）で重み付けしたシナリオの確からしさを出す
     const ws = m.scenario ? pm ?? J.posterior(m, s, false) : null;
