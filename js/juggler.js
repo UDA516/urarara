@@ -173,17 +173,17 @@ export const gamesOf = (it, s) => (it.of ? myAtGames(s) : it.per ? s.counts?.[it
 export const unofficialOff = (s, it) => !!(it.unofficial && s?.unofficialOff);
 export const hasUnofficial = m => myItems(m).some(it => it.unofficial);
 
-/** その設定では出ない項目の、設定の添字（A タイプのボーナスの flags 0。ジャグラーには無い） */
+/** その設定では出ない項目の、設定の添字（A タイプのボーナスの flags 0・小役などの pct 0。ジャグラーには無い） */
 export const never = (m, it) => (isA(m) ? A.never(m, it) : []);
 
 /** 示唆で外す設定（添字の Set）と、外した理由の項目。全部の設定が外れるときは外さない。
- *  その設定では出ないボーナス（never）を1回でも数えたときも、その設定を外す */
+ *  その設定では出ない項目（never。ボーナスの flags 0・小役などの pct 0）を1回でも数えたときも、その設定を外す */
 export function excluded(m, s) {
   const idx = new Set();
   const by = [];
   for (const it of myItems(m)) {
     if (!(s.counts?.[it.id] > 0) || unofficialOff(s, it)) continue;
-    const ex = it.group === 'hint' ? it.excludes : it.group === 'bonus' ? never(m, it) : [];
+    const ex = it.group === 'hint' ? it.excludes : it.group === 'bonus' || it.group === 'role' ? never(m, it) : [];
     if (!ex.length) continue;
     ex.forEach(i => idx.add(i));
     by.push(it);

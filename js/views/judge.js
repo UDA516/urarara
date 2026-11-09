@@ -607,7 +607,7 @@ function renderSession(root, s, ctx) {
   }
   const hintNote = it => `<p class="note">「${esc(it.short)}」を1回でも数えたら、${it.note ? `${esc(it.note)}として` : ''}`
     + `設定${it.excludes.map(i => esc(m.settings[i])).join('・')}を外して計算します</p>`;
-  // その設定では出ないボーナス（A タイプの flags 0。高設定でしか出ない契機）
+  // その設定では出ない項目（A タイプのボーナスの flags 0。高設定でしか出ない契機。小役などの pct 0 も）
   const settingsText = idx => `設定${idx.map(i => m.settings[i]).join('・')}`;
   const neverNote = it => `<p class="note">「${esc(it.short)}」は${esc(settingsText(J.never(m, it)))}では出ないので、1回でも数えたらその設定を外して計算します</p>`;
   // 契機の分からないボーナス（機種ファイルの unknown。2026-11-04）。組の契機のどれかとして計算に入れ、BIG・REG の回数にも入る
@@ -743,7 +743,7 @@ function renderSession(root, s, ctx) {
       + winsOf.map(winNote).join('')
       + sec.items.filter(it => it.group === 'games' && it.excl).map(exclNote).join('')
       + sec.items.filter(it => it.of).map(atNote).join('')
-      + sec.items.filter(it => it.group === 'bonus' && J.never(m, it).length).map(neverNote).join('')
+      + sec.items.filter(it => (it.group === 'bonus' || it.group === 'role') && J.never(m, it).length).map(neverNote).join('')
       + sec.items.filter(it => it.group === 'unknown').map(unknownNote).join('')
       + sec.items.filter(it => it.group === 'hint').map(hintNote).join('')
       + sec.items.filter(it => it.group === 'sum').map(splitNote).join('');
